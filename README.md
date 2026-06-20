@@ -35,6 +35,7 @@
 ```bash
 brew install node                              # 运行依赖（已装可跳过）
 brew tap yinshuai0324/agents-hud https://github.com/yinshuai0324/agents-hud
+brew trust yinshuai0324/agents-hud             # Homebrew 6+ 需信任第三方 tap（一次性）
 brew install agents-hud
 brew services start agents-hud                 # launchd 托管，崩溃自动重启
 # 日志：$(brew --prefix)/var/log/agents-hud.log
