@@ -52,7 +52,7 @@ info "当前 $cur → 新版本 $new ($tag)$([ $DRY = 1 ] && echo '   [dry-run]'
 if [ $DRY = 1 ]; then
   cat <<EOF
 将执行：
-  1) (cd server && npm version $new)      # 改 package.json + commit + tag $tag
+  1) 写入 $PKG 版本 $new → commit "chore: release $tag" + 打 tag $tag
   2) git push && git push origin $tag
   3) 下载 $tag 的 tarball 计算 sha256
   4) 改写 $FORMULA 的 url/sha256/version → commit + push
@@ -65,9 +65,13 @@ fi
 [ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || die "请在 main 分支发版。"
 git rev-parse "$tag" >/dev/null 2>&1 && die "tag $tag 已存在。"
 
-# --- bump + commit + tag ---
+# --- bump + commit + tag (plain git; npm version proved unreliable here) ---
 info "bump + commit + tag ..."
-( cd server && npm version "$new" -m "chore: release v%s" >/dev/null )
+perl -0pi -e "s{(\"version\":\s*\")[0-9.]+(\")}{\${1}$new\${2}}" "$PKG"
+grep -q "\"version\": \"$new\"" "$PKG" || die "未能写入新版本号到 $PKG。"
+git add "$PKG"
+git commit -q -m "chore: release $tag"
+git tag -a "$tag" -m "$tag"
 
 info "推送 commit + tag ..."
 git push
