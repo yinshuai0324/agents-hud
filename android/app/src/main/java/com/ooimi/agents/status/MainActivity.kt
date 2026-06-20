@@ -71,6 +71,8 @@ private fun AppRoot(vm: MainViewModel = viewModel()) {
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val connection by vm.connection.collectAsStateWithLifecycle()
     val pairing by vm.pairing.collectAsStateWithLifecycle()
+    val update by vm.update.collectAsStateWithLifecycle()
+    val updateProgress by vm.updateProgress.collectAsStateWithLifecycle()
 
     when (screen) {
         Screen.LOADING -> Box(Modifier.fillMaxSize().background(CCColors.BgBottom))
@@ -80,6 +82,9 @@ private fun AppRoot(vm: MainViewModel = viewModel()) {
             connection = connection,
             hostName = pairing?.name ?: "",
             onRescan = vm::rescan,
+            update = update,
+            updateProgress = updateProgress,
+            onUpdate = vm::startUpdate,
         )
     }
 }

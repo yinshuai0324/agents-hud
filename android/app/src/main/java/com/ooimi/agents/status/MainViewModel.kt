@@ -8,11 +8,13 @@ import com.ooimi.agents.status.data.PairingStore
 import com.ooimi.agents.status.data.Snapshot
 import com.ooimi.agents.status.net.ConnectionState
 import com.ooimi.agents.status.net.SignalClient
+import com.ooimi.agents.status.net.Updater
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.io.File
 
 enum class Screen { LOADING, SCAN, DASHBOARD }
 
@@ -29,6 +31,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _pairing = MutableStateFlow<Pairing?>(null)
     val pairing: StateFlow<Pairing?> = _pairing.asStateFlow()
 
+    /** Newer release if one is available, else null. */
+    private val _update = MutableStateFlow<Updater.UpdateInfo?>(null)
+    val update: StateFlow<Updater.UpdateInfo?> = _update.asStateFlow()
+
+    /** Download progress 0f..1f while updating, null otherwise. */
+    private val _updateProgress = MutableStateFlow<Float?>(null)
+    val updateProgress: StateFlow<Float?> = _updateProgress.asStateFlow()
+
+    private val currentVersion: String = runCatching {
+        app.packageManager.getPackageInfo(app.packageName, 0).versionName
+    }.getOrNull() ?: "0.0.0"
+
     init {
         // On launch, decide the start screen from the saved pairing (first emission).
         viewModelScope.launch {
@@ -40,6 +54,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 _screen.value = Screen.SCAN
             }
+        }
+        checkForUpdate()
+    }
+
+    /** Check GitHub for a newer release (silent; populates [update] if found). */
+    fun checkForUpdate() {
+        viewModelScope.launch {
+            _update.value = Updater.check(currentVersion)
+        }
+    }
+
+    /**
+     * Download the available update and launch the installer. If the app lacks
+     * the "install unknown apps" permission, send the user to grant it first.
+     */
+    fun startUpdate() {
+        val info = _update.value ?: return
+        if (_updateProgress.value != null) return // already running
+        val app = getApplication<Application>()
+        if (!Updater.canInstall(app)) {
+            Updater.openInstallPermission(app)
+            return
+        }
+        viewModelScope.launch {
+            _updateProgress.value = 0f
+            val apk = File(app.cacheDir, "updates/agents-hud-${info.version}.apk")
+            val ok = Updater.download(info.apkUrl, apk) { p -> _updateProgress.value = p }
+            _updateProgress.value = null
+            if (ok) Updater.install(app, apk)
         }
     }
 

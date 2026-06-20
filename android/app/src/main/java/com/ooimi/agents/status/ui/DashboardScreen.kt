@@ -47,6 +47,9 @@ fun DashboardScreen(
     connection: ConnectionState,
     hostName: String,
     onRescan: () -> Unit,
+    update: com.ooimi.agents.status.net.Updater.UpdateInfo? = null,
+    updateProgress: Float? = null,
+    onUpdate: () -> Unit = {},
 ) {
     Box(
         Modifier
@@ -126,6 +129,42 @@ fun DashboardScreen(
         // A full-screen color "breath" that washes in from the edges — only for
         // the states that want your attention (审批 / 等候).
         StatusChangeBreath(dominant)
+
+        UpdateBanner(update, updateProgress, onUpdate)
+    }
+}
+
+@Composable
+private fun BoxScope.UpdateBanner(
+    update: com.ooimi.agents.status.net.Updater.UpdateInfo?,
+    progress: Float?,
+    onUpdate: () -> Unit,
+) {
+    if (update == null) return
+    val text = if (progress != null) {
+        "下载更新中 ${(progress * 100).toInt()}%"
+    } else {
+        "新版本 ${update.version} · 点此更新"
+    }
+    Row(
+        Modifier
+            .align(Alignment.TopCenter)
+            .safeDrawingPadding()
+            .padding(top = 6.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(CCColors.GreenDim)
+            .clickable(enabled = progress == null, onClick = onUpdate)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = "⬆", color = CCColors.Green, fontSize = 12.sp)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = text,
+            color = CCColors.Green,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
