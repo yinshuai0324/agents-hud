@@ -69,7 +69,9 @@ git rev-parse "$tag" >/dev/null 2>&1 && die "tag $tag 已存在。"
 info "bump + commit + tag ..."
 perl -0pi -e "s{(\"version\":\s*\")[0-9.]+(\")}{\${1}$new\${2}}" "$PKG"
 grep -q "\"version\": \"$new\"" "$PKG" || die "未能写入新版本号到 $PKG。"
-git add "$PKG"
+# Keep the lockfile's version in sync (best-effort, offline).
+( cd server && npm install --package-lock-only --prefer-offline --silent >/dev/null 2>&1 || true )
+git add "$PKG" server/package-lock.json
 git commit -q -m "chore: release $tag"
 git tag -a "$tag" -m "$tag"
 
