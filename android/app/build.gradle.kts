@@ -13,13 +13,34 @@ android {
         applicationId = "com.ooimi.agents.status"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("appVersionName") as String?) ?: "0.1.0"
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    // Release signing comes from env (CI decodes the keystore from GitHub
+    // Secrets). With no keystore present, fall back to debug signing so local
+    // `assembleRelease` still works.
+    val ksFile = System.getenv("AGENTSHUD_KEYSTORE_FILE")
+    val useReleaseSigning = ksFile != null && file(ksFile).exists()
+    signingConfigs {
+        if (useReleaseSigning) {
+            create("release") {
+                storeFile = file(ksFile!!)
+                storePassword = System.getenv("AGENTSHUD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("AGENTSHUD_KEY_ALIAS")
+                keyPassword = System.getenv("AGENTSHUD_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = if (useReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

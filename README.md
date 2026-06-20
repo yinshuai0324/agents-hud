@@ -215,6 +215,20 @@ App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动
 
 ---
 
+## Android 构建与发布（CI）
+
+推送 `v*` 标签时，GitHub Actions（[`.github/workflows/android.yml`](.github/workflows/android.yml)）会自动
+构建**签名的 release APK** 并作为附件发布到对应的 GitHub Release。也可在 Actions 页手动触发
+（workflow_dispatch）只产出构建工件。
+
+**首次需配置签名密钥**（一次性，APK 需用固定密钥签名，App 才能覆盖更新）：
+
+```bash
+scripts/setup-android-signing.sh   # 生成 keystore(不进仓库) + 写入 4 个 GitHub Secrets
+```
+
+之后 `scripts/release.sh` 打出的 `v*` 标签会同时触发服务端 formula 更新与 App 的 APK 构建发布。
+
 ## 发版（维护者）
 
 ```bash
@@ -230,5 +244,6 @@ scripts/release.sh patch --dry-run # 预览，不改动
 ## 路线图
 
 - [x] Mac 端用 Homebrew 部署 server（`brew services` 常驻）—— 见上方“方式 A”
-- [ ] Android 自动构建 + 应用内自动更新
+- [x] Android 自动构建（CI 在 `v*` 标签上构建签名 APK 并发布到 Release）
+- [ ] Android 应用内自动更新（检测 Release 新版本 → 下载安装）
 - [ ] Gemini 等第二个 provider 接入

@@ -17,3 +17,8 @@ android/captures/
 
 # Local tooling
 .claude/
+
+# Signing keys — never commit; CI gets the keystore from GitHub Secrets
+*.jks
+*.keystore
+*.jks.base64
