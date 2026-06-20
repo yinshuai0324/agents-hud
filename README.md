@@ -225,7 +225,7 @@ scripts/release.sh patch --dry-run # 预览，不改动
 
 脚本会：bump `server/package.json` → `npm version` 提交并打 `vX.Y.Z` 标签 → 推送 →
 下载该 tag 的 GitHub tarball 算 `sha256` → 改写 `Formula/agents-hud.rb` 的 `url`/`sha256`/`version`
-→ 提交推送。之后本机 `brew upgrade --build-from-source agents-hud` 即可。
+→ 提交推送。之后本机 `agents-hud update`（或 `brew upgrade agents-hud`）即可。
 
 ## 路线图
 

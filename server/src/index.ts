@@ -90,7 +90,7 @@ function update(): number {
 
   const before = installedVersion();
   console.log("==> 检查并升级 agents-hud ...");
-  const up = spawnSync("brew", ["upgrade", "--build-from-source", SERVICE], {
+  const up = spawnSync("brew", ["upgrade", SERVICE], {
     stdio: "inherit",
     env: brewEnv,
   });

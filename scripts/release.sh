@@ -102,5 +102,4 @@ git commit -q -m "chore: bump formula to $tag"
 git push
 
 info "✅ 已发布 $tag"
-echo "  本机升级：git -C \"\$(brew --repository)/Library/Taps/yinshuai0324/homebrew-agents-hud\" pull \\"
-echo "            && brew upgrade --build-from-source agents-hud && agents-hud restart"
+echo "  本机升级：agents-hud update"
