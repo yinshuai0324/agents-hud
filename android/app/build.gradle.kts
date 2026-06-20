@@ -18,18 +18,18 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
-    // Release signing comes from env (CI decodes the keystore from GitHub
-    // Secrets). With no keystore present, fall back to debug signing so local
-    // `assembleRelease` still works.
-    val ksFile = System.getenv("AGENTSHUD_KEYSTORE_FILE")
-    val useReleaseSigning = ksFile != null && file(ksFile).exists()
+    // Release signing uses the committed keystore (open-source; fine for a
+    // personal LAN tool) with a fixed password, so CI needs no secrets. Env
+    // vars override if you ever want to sign with a private key instead.
+    val ksFile = file(System.getenv("AGENTSHUD_KEYSTORE_FILE") ?: "agentshud-release.jks")
+    val useReleaseSigning = ksFile.exists()
     signingConfigs {
         if (useReleaseSigning) {
             create("release") {
-                storeFile = file(ksFile!!)
-                storePassword = System.getenv("AGENTSHUD_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("AGENTSHUD_KEY_ALIAS")
-                keyPassword = System.getenv("AGENTSHUD_KEY_PASSWORD")
+                storeFile = ksFile
+                storePassword = System.getenv("AGENTSHUD_KEYSTORE_PASSWORD") ?: "agentshud"
+                keyAlias = System.getenv("AGENTSHUD_KEY_ALIAS") ?: "agentshud"
+                keyPassword = System.getenv("AGENTSHUD_KEY_PASSWORD") ?: "agentshud"
             }
         }
     }

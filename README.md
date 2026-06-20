@@ -221,13 +221,12 @@ App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动
 构建**签名的 release APK** 并作为附件发布到对应的 GitHub Release。也可在 Actions 页手动触发
 （workflow_dispatch）只产出构建工件。
 
-**首次需配置签名密钥**（一次性，APK 需用固定密钥签名，App 才能覆盖更新）：
+发布签名用仓库内固定的 keystore（[`android/app/agentshud-release.jks`](android/app/agentshud-release.jks)，
+密码见 `app/build.gradle.kts`）。**无需任何 GitHub Secrets**——这是个开源的个人局域网工具，固定密钥
+是为了让 App 能覆盖更新（Android 要求新版 APK 与已安装版签名一致）。若要改用私有密钥，
+设置 `AGENTSHUD_KEYSTORE_FILE`/`_PASSWORD`/`AGENTSHUD_KEY_ALIAS`/`_PASSWORD` 环境变量即可覆盖。
 
-```bash
-scripts/setup-android-signing.sh   # 生成 keystore(不进仓库) + 写入 4 个 GitHub Secrets
-```
-
-之后 `scripts/release.sh` 打出的 `v*` 标签会同时触发服务端 formula 更新与 App 的 APK 构建发布。
+`scripts/release.sh` 打出的 `v*` 标签会同时触发服务端 formula 更新与 App 的 APK 构建发布。
 
 ## 发版（维护者）
 

@@ -18,7 +18,9 @@ android/captures/
 # Local tooling
 .claude/
 
-# Signing keys — never commit; CI gets the keystore from GitHub Secrets
+# Signing keys. The release keystore is intentionally committed (open-source,
+# personal LAN tool — see android/app/agentshud-release.jks); ignore any others.
 *.jks
 *.keystore
 *.jks.base64
+!android/app/agentshud-release.jks
