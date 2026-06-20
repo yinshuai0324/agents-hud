@@ -60,6 +60,7 @@ agents-hud start       # 启动后台服务（brew services，开机自启）
 agents-hud stop        # 停止
 agents-hud restart     # 重启
 agents-hud status      # 查看服务状态
+agents-hud update      # 拉取最新版本并升级（有更新才重启）
 agents-hud connect     # 打印配对二维码 + 连接信息（手机扫码）
 agents-hud serve       # 前台运行（默认；launchd 即调用此项）
 agents-hud help        # 帮助
