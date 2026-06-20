@@ -80,4 +80,4 @@ $B64
 EOF
 fi
 
-echo "keystore 留在 ./$KS（已被 .gitignore 忽略）。请妥善备份——丢了就无法再发布可覆盖更新的版本。"
+echo "keystore 留在 ./${KS} （已被 .gitignore 忽略）。请妥善备份——丢了就无法再发布可覆盖更新的版本。"
