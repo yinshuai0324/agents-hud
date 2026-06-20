@@ -24,3 +24,6 @@ android/captures/
 *.keystore
 *.jks.base64
 !android/app/agentshud-release.jks
+
+# Kotlin compiler session caches
+android/.kotlin/
