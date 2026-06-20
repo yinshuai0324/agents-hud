@@ -14,3 +14,6 @@ android/captures/
 
 # OS
 .DS_Store
+
+# Local tooling
+.claude/

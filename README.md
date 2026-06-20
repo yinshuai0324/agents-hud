@@ -29,19 +29,17 @@
 
 **方式 A：Homebrew（推荐，常驻 + 开机自启）**
 
+本仓库自身就是一个 Homebrew tap（formula 在根目录 [`Formula/`](Formula/)），无需额外仓库——
+`brew tap` 时显式带上本仓库 URL 即可：
+
 ```bash
 brew install node                              # 运行依赖（已装可跳过）
-brew tap yinshuai0324/agents-hud https://github.com/yinshuai0324/homebrew-agents-hud
+brew tap yinshuai0324/agents-hud https://github.com/yinshuai0324/agents-hud
 brew install agents-hud
 brew services start agents-hud                 # launchd 托管，崩溃自动重启
 # 日志：$(brew --prefix)/var/log/agents-hud.log
 # 仅前台跑一次：agents-hud
 ```
-
-> 尚未发布独立 tap 仓库时，可用本机临时 tap：
-> `brew tap-new yinshuai0324/agents-hud --no-git` 后把 `packaging/homebrew/agents-hud.rb`
-> 拷到 `$(brew --repository)/Library/Taps/yinshuai0324/homebrew-agents-hud/Formula/` 再
-> `brew install yinshuai0324/agents-hud/agents-hud`。
 
 **方式 B：源码直接跑（开发）**
 
