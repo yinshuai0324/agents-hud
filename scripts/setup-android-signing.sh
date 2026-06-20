@@ -17,13 +17,26 @@ REPO="yinshuai0324/agents-hud"
 ALIAS="agentshud"
 KS="agentshud-release.jks" # matches .gitignore
 
-# locate keytool (PATH, JAVA_HOME, or Android Studio's bundled JBR)
+# Locate a WORKING keytool. Real JDKs first; the bare `keytool` on macOS is often
+# the /usr/bin stub that has no runtime, so we verify each candidate actually runs.
 KEYTOOL=""
-for c in keytool "${JAVA_HOME:-}/bin/keytool" \
-         "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool"; do
-  if [ -n "$c" ] && command -v "$c" >/dev/null 2>&1; then KEYTOOL="$c"; break; fi
+candidates=(
+  "${JAVA_HOME:-}/bin/keytool"
+  "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool"
+)
+sys_jh="$(/usr/libexec/java_home 2>/dev/null || true)"
+[ -n "$sys_jh" ] && candidates+=("$sys_jh/bin/keytool")
+candidates+=("$(command -v keytool 2>/dev/null || true)")
+for c in "${candidates[@]}"; do
+  [ -n "$c" ] && [ -x "$c" ] || continue
+  if "$c" -help >/dev/null 2>&1; then KEYTOOL="$c"; break; fi
 done
-[ -n "$KEYTOOL" ] || { echo "找不到 keytool（装个 JDK 或 Android Studio）。" >&2; exit 1; }
+[ -n "$KEYTOOL" ] || {
+  echo "找不到可用的 keytool。Android Studio 自带 JDK，或 \`brew install openjdk\`。" >&2
+  echo "也可手动指定：JAVA_HOME=/path/to/jdk scripts/setup-android-signing.sh" >&2
+  exit 1
+}
+echo "使用 keytool：$KEYTOOL"
 
 if [ -f "$KS" ]; then
   echo "复用已存在的 $KS（请输入它的密码）。"
