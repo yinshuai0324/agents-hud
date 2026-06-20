@@ -27,10 +27,28 @@
 
 ### 1. 启动电脑端服务
 
+**方式 A：Homebrew（推荐，常驻 + 开机自启）**
+
+```bash
+brew install node                              # 运行依赖（已装可跳过）
+brew tap yinshuai0324/agents-hud https://github.com/yinshuai0324/homebrew-agents-hud
+brew install agents-hud
+brew services start agents-hud                 # launchd 托管，崩溃自动重启
+# 日志：$(brew --prefix)/var/log/agents-hud.log
+# 仅前台跑一次：agents-hud
+```
+
+> 尚未发布独立 tap 仓库时，可用本机临时 tap：
+> `brew tap-new yinshuai0324/agents-hud --no-git` 后把 `packaging/homebrew/agents-hud.rb`
+> 拷到 `$(brew --repository)/Library/Taps/yinshuai0324/homebrew-agents-hud/Formula/` 再
+> `brew install yinshuai0324/agents-hud/agents-hud`。
+
+**方式 B：源码直接跑（开发）**
+
 ```bash
 cd server
 npm install
-npm start
+npm start        # 开发；npm run build && npm run start:prod 为编译后运行
 ```
 
 终端会打印一个二维码和连接信息：
@@ -174,6 +192,6 @@ App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动
 
 ## 路线图
 
-- [ ] Mac 端用 Homebrew 部署 server（`brew services` 常驻）
+- [x] Mac 端用 Homebrew 部署 server（`brew services` 常驻）—— 见上方“方式 A”
 - [ ] Android 自动构建 + 应用内自动更新
 - [ ] Gemini 等第二个 provider 接入
