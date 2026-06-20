@@ -40,7 +40,7 @@ export function buildPairing(port: number, token: string): PairingPayload {
 /** Print the pairing QR code plus a human-readable summary to the terminal. */
 export function printPairingQr(payload: PairingPayload): void {
   const data = JSON.stringify(payload);
-  console.log("\n  📡  CC 信号塔 — 用手机 App 扫码连接 / Scan with the app:\n");
+  console.log("\n  📡  AgentsHUD — 用手机 App 扫码连接 / Scan with the app:\n");
   qrcode.generate(data, { small: true }, (qr) => {
     console.log(
       qr

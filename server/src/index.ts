@@ -1,4 +1,4 @@
-#!/usr/bin/env -S npx tsx
+#!/usr/bin/env node
 import { loadConfig } from "./config.js";
 import { ClaudeProvider } from "./providers/claude.js";
 import { StateEngine } from "./state.js";
@@ -15,7 +15,7 @@ async function main() {
   server.listen(cfg.port, cfg.host, () => {
     console.clear();
     console.log("┌──────────────────────────────────────────────┐");
-    console.log("│            CC 信号塔 / CC Signal Tower         │");
+    console.log("│                   AgentsHUD                    │");
     console.log("└──────────────────────────────────────────────┘");
     const pairing = buildPairing(cfg.port, cfg.authToken);
     printPairingQr(pairing);

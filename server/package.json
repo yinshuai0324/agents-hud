@@ -1,15 +1,20 @@
 {
-  "name": "cc-signal-tower-server",
+  "name": "agents-hud-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "CC 信号塔 — computer-side server that watches Claude Code state and serves it to the Android app over LAN.",
+  "description": "AgentsHUD — computer-side server that watches Claude Code state and serves it to the Android app over LAN.",
   "bin": {
-    "cc-signal": "./src/index.ts"
+    "agents-hud": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start:prod": "node dist/index.js",
     "setup-hooks": "tsx src/setup-hooks.ts",
     "uninstall-hooks": "tsx src/setup-hooks.ts --uninstall",
     "typecheck": "tsc --noEmit"
