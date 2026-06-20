@@ -39,7 +39,7 @@ done
 echo "使用 keytool：$KEYTOOL"
 
 if [ -f "$KS" ]; then
-  echo "复用已存在的 $KS（请输入它的密码）。"
+  echo "复用已存在的 ${KS} （请输入它的密码）。"
   read -r -s -p "keystore 密码: " PASS; echo
 else
   read -r -s -p "为新 keystore 设置密码: " PASS; echo
@@ -55,7 +55,7 @@ fi
 B64=$(base64 < "$KS" | tr -d '\n')
 
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-  echo "==> 写入 GitHub Secrets（$REPO）..."
+  echo "==> 写入 GitHub Secrets（${REPO}）..."
   printf '%s' "$B64"   | gh secret set ANDROID_KEYSTORE_BASE64   --repo "$REPO"
   printf '%s' "$PASS"  | gh secret set ANDROID_KEYSTORE_PASSWORD --repo "$REPO"
   printf '%s' "$ALIAS" | gh secret set ANDROID_KEY_ALIAS         --repo "$REPO"
