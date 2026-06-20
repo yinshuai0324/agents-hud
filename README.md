@@ -214,6 +214,18 @@ App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动
 
 ---
 
+## 发版（维护者）
+
+```bash
+scripts/release.sh                 # 默认 patch：bump + tag + 算 sha + 改 formula + 推送
+scripts/release.sh minor           # 或 major / 指定 X.Y.Z
+scripts/release.sh patch --dry-run # 预览，不改动
+```
+
+脚本会：bump `server/package.json` → `npm version` 提交并打 `vX.Y.Z` 标签 → 推送 →
+下载该 tag 的 GitHub tarball 算 `sha256` → 改写 `Formula/agents-hud.rb` 的 `url`/`sha256`/`version`
+→ 提交推送。之后本机 `brew upgrade --build-from-source agents-hud` 即可。
+
 ## 路线图
 
 - [x] Mac 端用 Homebrew 部署 server（`brew services` 常驻）—— 见上方“方式 A”
