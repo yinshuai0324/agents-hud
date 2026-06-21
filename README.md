@@ -4,8 +4,6 @@
 每个会话的运行状态、当前调用的工具、上下文剩余、token 消耗、5 小时 / 7 天套餐用量与当前模型。
 手机扫描电脑终端里的二维码，在**局域网**内连接，实时刷新。
 
-> 第一版聚焦 Claude Code；数据层是可插拔的 `Provider`，Gemini 等可作为第二个 provider 接入。
-
 ```
 ┌──────────────┐   局域网 WebSocket    ┌──────────────────────────┐
 │  Android App │  ◀────────────────────│  server (本机 Node)        │
@@ -14,22 +12,15 @@
                                        └──────────────────────────┘
 ```
 
-## 两个部分
-
-| 目录 | 说明 |
-|------|------|
-| [`server/`](server/) | 电脑端 Node + TypeScript 服务：采集 `~/.claude` 数据、状态机、WebSocket、终端二维码、安装 hook |
-| [`android/`](android/) | Kotlin + Jetpack Compose App：扫码、WebSocket 客户端、全屏 HUD 面板 |
+由两部分组成：电脑端 **server**（采集 `~/.claude` 数据并通过局域网下发）和 **Android App**（扫码连接、全屏看板）。
 
 ---
 
-## 快速开始
-
-### 1. 启动电脑端服务
+## 安装电脑端服务（macOS）
 
 **方式 A：一键脚本（推荐）**
 
-自动检测 Homebrew（没有会提示安装），再装好 node、tap、agents-hud 并起服务：
+自动检测/安装 Homebrew、node，装好服务、**安装 Claude hooks**并启动：
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/yinshuai0324/agents-hud/main/install.sh)"
@@ -39,224 +30,84 @@
 
 **方式 B：手动 Homebrew**
 
-本仓库自身就是一个 Homebrew tap（formula 在根目录 [`Formula/`](Formula/)），无需额外仓库：
-
 ```bash
 brew install node                              # 运行依赖（已装可跳过）
 brew tap yinshuai0324/agents-hud https://github.com/yinshuai0324/agents-hud
 brew trust yinshuai0324/agents-hud             # Homebrew 6+ 需信任第三方 tap（一次性）
 brew install agents-hud
-brew services start agents-hud                 # launchd 托管，崩溃自动重启
-# 日志：$(brew --prefix)/var/log/agents-hud.log
-# 仅前台跑一次：agents-hud
+agents-hud setup-hooks                         # 安装 Claude hooks（强烈建议）
+brew services start agents-hud                 # launchd 托管，开机自启、崩溃重启
 ```
 
-**方式 C：源码直接跑（开发）**
+> **hooks 是什么**：装上后状态最准最实时，并能拿到官方用量、上下文剩余、会话标题、当前模型、
+> 实时工具调用。不装也能用（靠文件监听推断，只能区分 工作/等候/空闲）。装完**重启正在运行的
+> Claude 会话**即可生效。
 
-```bash
-cd server
-npm install
-npm start        # 开发；npm run build && npm run start:prod 为编译后运行
-```
+## 安装手机 App
 
-终端会打印一个二维码和连接信息：
-
-```
-   WebSocket : ws://192.168.8.175:4317
-   Host      : my-macbook
-   Auth      : off
-```
-
-### 命令行（CLI）
-
-安装后可直接用 `agents-hud` 子命令管理：
-
-```bash
-agents-hud start       # 启动后台服务（brew services，开机自启）
-agents-hud stop        # 停止
-agents-hud restart     # 重启
-agents-hud status      # 查看服务状态
-agents-hud update          # 拉取最新版本并升级（有更新才重启）
-agents-hud connect         # 打印配对二维码 + 连接信息（手机扫码）
-agents-hud setup-hooks     # 安装 Claude Code hooks + statusLine
-agents-hud uninstall-hooks # 移除 hooks
-agents-hud serve           # 前台运行（默认；launchd 即调用此项）
-agents-hud help            # 帮助
-```
-
-### 2. 安装 Claude Code hooks + statusLine
-
-> 方式 A 的一键脚本**已自动安装** hooks，可跳过本步。
-
-不装也能用（靠文件监听推断状态），但装上后状态最准确、最实时，且能拿到**官方用量、上下文剩余、
-会话标题、当前模型、实时工具调用**：
-
-```bash
-agents-hud setup-hooks       # brew 安装方式（写入 ~/.claude/settings.json，自动备份）
-agents-hud uninstall-hooks   # 需要时干净移除
-# 源码运行则用：cd server && npm run setup-hooks / npm run uninstall-hooks
-# 之后重启正在运行的 Claude Code 会话即可生效
-```
-
-它会在这些事件上注册一个 fire-and-forget 的回调（不阻塞 Claude）：
-`UserPromptSubmit / PreToolUse / PostToolUse / Stop / StopFailure / Notification / SessionStart / SessionEnd`，
-并接管 statusLine 以获取 Claude 自己的 `rate_limits` / `context_window` / `model` 等。桥接脚本会被复制到
-`~/.claude/agents-hud/`（稳定路径，不受 brew 升级影响）。
-
-### 3. 安装 Android App
-
-**最简单**：从 [GitHub Releases](https://github.com/yinshuai0324/agents-hud/releases/latest) 下载最新的
-`agents-hud-*.apk` 安装（首次需在系统设置里允许该来源「安装未知应用」）。装好后 App 会每小时
-自检更新、有新版**自动弹窗提示**，以后无需再手动下载。
-
-**自行构建**（开发，需 Android Studio 自带 JDK 或本机 JDK 17）：
-
-```bash
-cd android
-./gradlew assembleRelease   # 产物：app/build/outputs/apk/release/app-release.apk
-# assembleDebug 出 debug 版；注意 debug 与 release 签名不同，两者不能互相覆盖更新
-```
+从 [GitHub Releases](https://github.com/yinshuai0324/agents-hud/releases/latest) 下载最新的
+`agents-hud-*.apk` 安装（首次需在系统设置里允许该来源「安装未知应用」）。装好后 App 会**每小时
+自检更新**、有新版自动弹窗提示，以后无需再手动下载。
 
 App 为全屏常驻（kiosk）设计：隐藏状态栏/导航栏、屏蔽返回退出、适配挖孔屏，适合做一块常亮看板。
 
-### 4. 配对
+## 配对
 
-App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动连接并显示面板。配对信息会被保存，
-下次启动自动重连。面板右上角“重扫”可重新配对。
+App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动连接并显示面板。配对信息会保存，
+下次启动自动重连。面板左上角“重扫”可重新配对。**手机与电脑须在同一局域网。**
 
-> 手机与电脑必须在**同一局域网**。
+看不到二维码？在电脑上运行 `agents-hud connect` 重新打印。
 
 ---
 
-## 五种状态
+## 常用命令
 
-红绿灯每盏对应一个会话状态（Hooks 实时上报 + 文件监听兜底 + 空闲计时）：
+```bash
+agents-hud start | stop | restart    # 管理后台服务
+agents-hud status                    # 查看服务状态
+agents-hud update                    # 升级到最新版（有更新才重启）
+agents-hud connect                   # 打印配对二维码 + 连接信息
+agents-hud setup-hooks               # 安装 Claude hooks（uninstall-hooks 移除）
+agents-hud help                      # 全部命令
+```
 
-| 颜色 | 状态 | 触发 |
+---
+
+## 看懂面板
+
+### 五种状态
+
+红绿灯每盏对应一个会话状态，亮哪盏由优先级决定：**出错 > 审批 > 等候 > 工作 > 空闲**。
+
+| 颜色 | 状态 | 含义 |
 |------|------|------|
-| 🔴 红 | **出错** error | `StopFailure`（运行因错误中止）|
-| 🟠 橙 | **审批** notify | `Notification`（等你批准权限 / 通知）|
-| 🔵 蓝 | **等候** waiting | `Stop`（答完一轮，轮到你）|
-| 🟡 黄 | **工作** working | `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `SessionStart`（或文件正在写入）|
-| 🟢 绿 | **空闲** quiet | 等候后超过 `quietAfterMs` 仍无新活动 |
+| 🔴 红 | **出错** | 运行因错误中止 |
+| 🟠 橙 | **审批** | 在等你批准权限 / 通知 |
+| 🔵 蓝 | **等候** | 答完一轮，轮到你 |
+| 🟡 黄 | **工作** | 正在跑（提交 prompt / 调工具）|
+| 🟢 绿 | **空闲** | 长时间无活动 |
 
-- 顶部大红绿灯亮哪盏由优先级决定：**出错 > 审批 > 等候 > 工作 > 空闲**；切换时先呼吸几下再常亮，
-  切到“审批/等候”时还有一次全屏呼吸提醒。
-- **出错 / 审批不会自动褪色**——它们是未处理的事项，会一直亮到该会话有新活动为止；工作超时
-  (`workingTimeoutMs`) 降为等候，等候超时 (`quietAfterMs`) 降为空闲。
-- 未安装 hook 时仅靠 `~/.claude/projects/**/*.jsonl` 的写入与 mtime 推断（只能区分 工作/等候/空闲），
-  可能有几秒延迟。
-- 手机**未连接**时：红绿灯熄灭、状态计数归零、其余数据变灰并显示“更新于 X 前”，避免把过期数据
-  误当实时。
+- **出错 / 审批不会自动褪色**——这俩是没处理的事项，会一直亮到该会话有新动作；工作久了降为等候，
+  等候久了降为空闲。
+- 切换状态时大灯先呼吸几下再常亮；切到“审批 / 等候”时还有一次全屏呼吸提醒。
+- 手机**未连接**时：红绿灯熄灭、计数归零、其余数据变灰并显示“更新于 X 前”，避免把过期数据当实时。
 
----
-
-## 会话列表显示什么
+### 会话列表
 
 每条会话展示：
 
-- **标题**：会话名 `session_name`（来自 statusLine），没有时回退为 3 级路径，如 `project/agents-status/server`
-- **token 消耗** + **上下文剩余**：`928.3k tokens · 上下文 273.4k · 剩 73%`
-- **实时工具调用**（工作时，独占一行）：`Bash: npm run build`、`Edit UsageBar.kt` 等
+- **标题**：会话名，没有时回退为路径，如 `project/agents-status/server`
+- **token + 上下文剩余**：`928.3k tokens · 上下文 273.4k · 剩 73%`
+- **实时工具调用**（工作时）：`Bash: npm run build`、`Edit UsageBar.kt`
 
-左侧信息列还有：套餐 + 实时/估算标记、5 小时 / 7 天用量进度条、今日消耗、近 7 天消耗、当前模型。
-（今日 / 近 7 天的 token 总数由服务端扫描最近 7 天的 transcript 累加得出，缓存 60 秒。）
+左侧信息列：套餐、5 小时 / 7 天用量、今日消耗、近 7 天消耗、当前模型。用量带「实时 / 估算」标记——
+装了 hooks 后是 Claude 的官方数字（实时），否则是本地估算。
 
----
+### 自动更新
 
-## 用量与上下文百分比
-
-- **5 小时 / 7 天用量**：优先用 Claude statusLine 上报的官方 `rate_limits`（标记“实时”），
-  没有时用 ccusage 风格的本地 5 小时滚动窗口估算（标记“估算”，7 天则不显示）。官方值会
-  **持久化到 `~/.claude/.agentshud-usage.json`** 并在其重置时间前一直有效，因此服务端重启或
-  手机长时间息屏后重连，用量不会清空。
-- **上下文剩余**：优先用 statusLine 的 `context_window.remaining_percentage`（官方精确值），
-  没有时用启发式估算（占用超过 200k 判定为 1M 窗口，否则按 200k）。
-- 本地估算的分母（token 预算）无法从磁盘精确得到，可通过环境变量配置（见下）。
+App 启动时及每隔 1 小时查一次 GitHub Releases，发现新版本就**自动弹窗**「立即更新 / 稍后」。
+选「立即更新」会下载并覆盖安装（所有版本同一签名，无需卸载）；选「稍后」保留顶部横幅可随时点。
 
 ---
 
-## 服务端环境变量
-
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `CC_SIGNAL_PORT` | `4317` | HTTP/WebSocket 端口 |
-| `CC_SIGNAL_HOST` | `0.0.0.0` | 绑定地址（保持 0.0.0.0 才能被手机访问）|
-| `CC_SIGNAL_TOKEN` | 空 | 设置后启用共享 token 鉴权（二维码会带上）|
-| `CC_SIGNAL_TOKEN_BUDGET` | `2000000` | 本地 5H 估算的百分比分母 |
-| `CC_SIGNAL_PERCENT_BASIS` | `budget` | `budget` 或 `maxBlock` |
-| `CC_SIGNAL_QUIET_AFTER_MS` | `300000` | 等候→空闲 的空闲阈值 |
-| `CC_SIGNAL_WORKING_TIMEOUT_MS` | `90000` | 工作无新事件→等候 的超时 |
-| `CC_SIGNAL_DROP_AFTER_MS` | `21600000` | 超过此时长无活动的会话从列表移除 |
-| `CC_SIGNAL_CLAUDE_DIR` | `~/.claude` | Claude 数据目录 |
-
----
-
-## 数据契约（WebSocket / REST 下发）
-
-`GET /api/snapshot` 与 WebSocket 推送同一结构（详见 `server/src/state.ts` 与
-`android/.../data/Snapshot.kt`）：
-
-```jsonc
-{
-  "provider": "claude",
-  "plan": "Max (5x)",
-  "model": "Opus 4.8 (1M)",                 // 最近活跃会话的模型
-  "status": { "waiting": 1, "working": 1, "quiet": 2, "notify": 0, "error": 0,
-              "dominant": "working", "total": 4 },
-  "usage5h": { "percent": 8, "tokensUsed": 123456, "tokenBudget": 2000000,
-               "resetInMinutes": 211, "source": "live" },
-  "usage7d": { "percent": 13, "resetInMinutes": 6540 },   // 没有官方数据时为 null
-  "sessions": [ { "id": "...", "project": "优化仪表板布局", "cwd": "/Users/...",
-                  "state": "working", "model": "claude-opus-4-8[1m]",
-                  "lastActivity": 0, "tokens": 928300,
-                  "contextTokens": 273405, "contextLeftPercent": 73,
-                  "currentTool": "Bash: npm run build" } ],
-  "totals": { "todayTokens": 2700000 },
-  "ts": "..."
-}
-```
-
-服务端接口：`GET /healthz`、`GET /api/snapshot`、`POST /hooks`、`POST /statusline`、`WS /`。
-
----
-
-## Android 构建与发布（CI）
-
-推送 `v*` 标签时，GitHub Actions（[`.github/workflows/android.yml`](.github/workflows/android.yml)）会自动
-构建**签名的 release APK** 并作为附件发布到对应的 GitHub Release。也可在 Actions 页手动触发
-（workflow_dispatch）只产出构建工件。
-
-发布签名用仓库内固定的 keystore（[`android/app/agentshud-release.jks`](android/app/agentshud-release.jks)，
-密码见 `app/build.gradle.kts`）。**无需任何 GitHub Secrets**——这是个开源的个人局域网工具，固定密钥
-是为了让 App 能覆盖更新（Android 要求新版 APK 与已安装版签名一致）。若要改用私有密钥，
-设置 `AGENTSHUD_KEYSTORE_FILE`/`_PASSWORD`/`AGENTSHUD_KEY_ALIAS`/`_PASSWORD` 环境变量即可覆盖。
-
-`scripts/release.sh` 打出的 `v*` 标签会同时触发服务端 formula 更新与 App 的 APK 构建发布。
-
-### 应用内自动更新
-
-App **启动时及之后每隔 1 小时**自动查 GitHub Releases（`/releases/latest`），与已安装版本比对：
-发现新版本就**自动弹窗提示**「立即更新 / 稍后」。选「立即更新」会下载 APK 并拉起系统安装器
-（需一次性授予「安装未知应用」权限）；选「稍后」则保留顶部横幅,可随时点击更新。
-因为所有 release 共用同一签名密钥，能直接覆盖安装、无需卸载。
-
-## 发版（维护者）
-
-```bash
-scripts/release.sh                 # 默认 patch：bump + tag + 算 sha + 改 formula + 推送
-scripts/release.sh minor           # 或 major / 指定 X.Y.Z
-scripts/release.sh patch --dry-run # 预览，不改动
-```
-
-脚本会：bump `server/package.json`（并同步 package-lock 版本）→ 提交并打 `vX.Y.Z` 标签 → 推送
-→ 下载该 tag 的 GitHub tarball 算 `sha256` → 改写 `Formula/agents-hud.rb` 的 `url`/`sha256`/`version`
-→ 提交推送。该 `v*` 标签同时触发 Android CI 构建并发布签名 APK。之后本机 `agents-hud update`
-（或 `brew upgrade agents-hud`）即可；App 端会自动检测到新版。
-
-## 路线图
-
-- [x] Mac 端用 Homebrew 部署 server（`brew services` 常驻）—— 见上方“方式 A”
-- [x] Android 自动构建（CI 在 `v*` 标签上构建签名 APK 并发布到 Release）
-- [x] Android 应用内自动更新（每小时检测 Release 新版本 → 弹窗 → 下载安装）
-- [ ] Gemini 等第二个 provider 接入
+开发、维护、数据契约、环境变量、发版等见 **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**。
