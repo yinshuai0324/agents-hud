@@ -60,18 +60,27 @@ fun UsageBar(
             }
             Spacer(Modifier.weight(1f))
             Pill(
-                text = if (live) "实时" else "估算",
+                text = if (live) "实时" else "等待上报",
                 fg = if (live) CCColors.Green else CCColors.TextFaint,
                 bg = if (live) CCColors.GreenDim else CCColors.Card,
             )
         }
 
-        Spacer(Modifier.height(10.dp))
-        UsageRow(label = "5 小时", percent = fivePercent, resetMin = fiveResetMin, big = true)
-
-        if (sevenPercent != null) {
+        if (live) {
             Spacer(Modifier.height(10.dp))
-            UsageRow(label = "7 天", percent = sevenPercent, resetMin = sevenResetMin, big = false)
+            UsageRow(label = "5 小时", percent = fivePercent, resetMin = fiveResetMin, big = true)
+            if (sevenPercent != null) {
+                Spacer(Modifier.height(10.dp))
+                UsageRow(label = "7 天", percent = sevenPercent, resetMin = sevenResetMin, big = false)
+            }
+        } else {
+            // No real usage yet — show a placeholder instead of a bogus local estimate.
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "5 小时 / 7 天用量 · 等待 statusLine 上报…",
+                color = CCColors.TextFaint,
+                fontSize = 13.sp,
+            )
         }
 
         Spacer(Modifier.height(10.dp))
