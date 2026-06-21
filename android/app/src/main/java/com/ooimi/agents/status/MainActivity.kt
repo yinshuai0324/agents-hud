@@ -17,8 +17,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ooimi.agents.status.ui.DashboardScreen
@@ -47,7 +51,9 @@ class MainActivity : ComponentActivity() {
         })
         setContent {
             CCSignalTheme {
-                AppRoot()
+                ProportionalScale {
+                    AppRoot()
+                }
             }
         }
     }
@@ -65,6 +71,27 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
+    }
+}
+
+/**
+ * Render the whole UI as if the screen were [DESIGN_WIDTH_DP] dp wide, scaling
+ * every dp/sp uniformly to fill the real width. Keeps proportions identical across
+ * resolutions / DPIs / screen sizes (the layout was tuned at 800dp landscape).
+ * fontScale is pinned to 1 so the kiosk looks the same regardless of the system
+ * font-size setting.
+ */
+private const val DESIGN_WIDTH_DP = 800f
+
+@Composable
+private fun ProportionalScale(content: @Composable () -> Unit) {
+    val cfg = LocalConfiguration.current
+    val base = LocalDensity.current
+    val scale = (cfg.screenWidthDp / DESIGN_WIDTH_DP).coerceIn(0.6f, 3f)
+    CompositionLocalProvider(
+        LocalDensity provides Density(density = base.density * scale, fontScale = 1f),
+    ) {
+        content()
     }
 }
 
