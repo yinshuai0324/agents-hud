@@ -70,6 +70,7 @@ data class Session(
 @Serializable
 data class Totals(
     val todayTokens: Long = 0,
+    val sevenDayTokens: Long = 0,
 )
 
 /** Session state shared by sessions and the dominant indicator. */

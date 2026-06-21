@@ -31,7 +31,7 @@ export interface Snapshot {
   /** Weekly (7-day) limit from Claude, when available; otherwise null. */
   usage7d: UsageWindow | null;
   sessions: WireSession[];
-  totals: { todayTokens: number };
+  totals: { todayTokens: number; sevenDayTokens: number };
   ts: string;
 }
 
@@ -148,6 +148,10 @@ export class StateEngine {
   private liveFiveHour: LiveWindow | null = null;
   private liveSevenDay: LiveWindow | null = null;
   private liveSessions = new Map<string, LiveSession>();
+  // Token totals over today + last 7 days, recomputed at most once a minute
+  // (scanning 7 days of transcripts is heavier than the 3s collect()).
+  private usageTotals = { today: 0, sevenDay: 0 };
+  private usageTotalsAt = 0;
 
   constructor(
     private cfg: Config,
@@ -234,7 +238,27 @@ export class StateEngine {
         this.liveSessions.delete(id);
       }
     }
+    await this.updateUsageTotals(now);
     this.tickAndEmit();
+  }
+
+  /** Recompute today / 7-day token totals (cached for 60s — the scan is heavy). */
+  private async updateUsageTotals(now: number): Promise<void> {
+    if (this.usageTotalsAt !== 0 && now - this.usageTotalsAt < 60_000) return;
+    let today = 0;
+    let sevenDay = 0;
+    for (const p of this.providers) {
+      if (!p.recentUsage) continue;
+      try {
+        const u = await p.recentUsage(now);
+        today += u.today;
+        sevenDay += u.sevenDay;
+      } catch {
+        // ignore a provider that fails to aggregate
+      }
+    }
+    this.usageTotals = { today, sevenDay };
+    this.usageTotalsAt = now;
   }
 
   /**
@@ -486,12 +510,6 @@ export class StateEngine {
       : working > 0 ? "working"
       : "quiet";
 
-    const midnight = new Date(now);
-    midnight.setHours(0, 0, 0, 0);
-    const todayTokens = this.usageEvents
-      .filter((e) => e.ts >= midnight.getTime())
-      .reduce((sum, e) => sum + e.tokens, 0);
-
     // Prefer Claude's real 5h numbers (from statusLine) over the local estimate.
     let usage5h: Usage5h = computeUsage5h(this.usageEvents, this.cfg, now);
     if (liveWindowValid(this.liveFiveHour, now)) {
@@ -527,7 +545,10 @@ export class StateEngine {
       usage5h,
       usage7d,
       sessions: wire,
-      totals: { todayTokens },
+      totals: {
+        todayTokens: this.usageTotals.today,
+        sevenDayTokens: this.usageTotals.sevenDay,
+      },
       ts: new Date(now).toISOString(),
     };
   }
