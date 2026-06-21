@@ -1,9 +1,9 @@
 class AgentsHud < Formula
   desc "Claude Code status dashboard server — serves live state to the AgentsHUD app over LAN"
   homepage "https://github.com/yinshuai0324/agents-hud"
-  url "https://github.com/yinshuai0324/agents-hud/archive/refs/tags/v0.1.4.tar.gz"
-  sha256 "12f6adb10d7b65959cf498d23fbba833318c7464e00e110b9e735ddb8fd52dc3"
-  version "0.1.4"
+  url "https://github.com/yinshuai0324/agents-hud/archive/refs/tags/v0.1.5.tar.gz"
+  sha256 "07de6d83e2992faf5074024159384c67269e273e5b925f62f29564df6def75d6"
+  version "0.1.5"
 
   # Intentionally no `depends_on "node"`: that would pull/upgrade to the current
   # core node bottle (~78MB). We build + run with whatever `node` is already
