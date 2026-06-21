@@ -12,6 +12,7 @@ import com.ooimi.agents.status.net.Updater
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
@@ -35,9 +36,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _update = MutableStateFlow<Updater.UpdateInfo?>(null)
     val update: StateFlow<Updater.UpdateInfo?> = _update.asStateFlow()
 
+    /** Whether to auto-show the update prompt dialog. */
+    private val _showUpdateDialog = MutableStateFlow(false)
+    val showUpdateDialog: StateFlow<Boolean> = _showUpdateDialog.asStateFlow()
+
     /** Download progress 0f..1f while updating, null otherwise. */
     private val _updateProgress = MutableStateFlow<Float?>(null)
     val updateProgress: StateFlow<Float?> = _updateProgress.asStateFlow()
+
+    /** A version the user chose "later" on — don't re-pop the dialog for it. */
+    private var dismissedVersion: String? = null
 
     private val currentVersion: String = runCatching {
         app.packageManager.getPackageInfo(app.packageName, 0).versionName
@@ -55,14 +63,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 _screen.value = Screen.SCAN
             }
         }
-        checkForUpdate()
+        // Check for updates on launch and then hourly; auto-prompt on a new version.
+        viewModelScope.launch {
+            while (true) {
+                val info = Updater.check(currentVersion)
+                _update.value = info
+                if (info != null && info.version != dismissedVersion) {
+                    _showUpdateDialog.value = true
+                }
+                delay(UPDATE_CHECK_INTERVAL_MS)
+            }
+        }
     }
 
-    /** Check GitHub for a newer release (silent; populates [update] if found). */
-    fun checkForUpdate() {
-        viewModelScope.launch {
-            _update.value = Updater.check(currentVersion)
-        }
+    /** Dismiss the prompt ("later") — keep the banner, but don't re-pop for this version. */
+    fun dismissUpdate() {
+        dismissedVersion = _update.value?.version
+        _showUpdateDialog.value = false
     }
 
     /**
@@ -71,6 +88,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun startUpdate() {
         val info = _update.value ?: return
+        _showUpdateDialog.value = false
         if (_updateProgress.value != null) return // already running
         val app = getApplication<Application>()
         if (!Updater.canInstall(app)) {
@@ -84,6 +102,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _updateProgress.value = null
             if (ok) Updater.install(app, apk)
         }
+    }
+
+    private companion object {
+        const val UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000L // 1 hour
     }
 
     /** Called when a QR code is successfully scanned. */

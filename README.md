@@ -228,6 +228,13 @@ App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动
 
 `scripts/release.sh` 打出的 `v*` 标签会同时触发服务端 formula 更新与 App 的 APK 构建发布。
 
+### 应用内自动更新
+
+App **启动时及之后每隔 1 小时**自动查 GitHub Releases（`/releases/latest`），与已安装版本比对：
+发现新版本就**自动弹窗提示**「立即更新 / 稍后」。选「立即更新」会下载 APK 并拉起系统安装器
+（需一次性授予「安装未知应用」权限）；选「稍后」则保留顶部横幅,可随时点击更新。
+因为所有 release 共用同一签名密钥，能直接覆盖安装、无需卸载。
+
 ## 发版（维护者）
 
 ```bash
@@ -244,5 +251,5 @@ scripts/release.sh patch --dry-run # 预览，不改动
 
 - [x] Mac 端用 Homebrew 部署 server（`brew services` 常驻）—— 见上方“方式 A”
 - [x] Android 自动构建（CI 在 `v*` 标签上构建签名 APK 并发布到 Release）
-- [ ] Android 应用内自动更新（检测 Release 新版本 → 下载安装）
+- [x] Android 应用内自动更新（每小时检测 Release 新版本 → 弹窗 → 下载安装）
 - [ ] Gemini 等第二个 provider 接入

@@ -13,6 +13,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -73,6 +76,7 @@ private fun AppRoot(vm: MainViewModel = viewModel()) {
     val pairing by vm.pairing.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
     val updateProgress by vm.updateProgress.collectAsStateWithLifecycle()
+    val showUpdateDialog by vm.showUpdateDialog.collectAsStateWithLifecycle()
 
     when (screen) {
         Screen.LOADING -> Box(Modifier.fillMaxSize().background(CCColors.BgBottom))
@@ -85,6 +89,19 @@ private fun AppRoot(vm: MainViewModel = viewModel()) {
             update = update,
             updateProgress = updateProgress,
             onUpdate = vm::startUpdate,
+        )
+    }
+
+    val u = update
+    if (showUpdateDialog && u != null) {
+        AlertDialog(
+            onDismissRequest = vm::dismissUpdate,
+            title = { Text("发现新版本 ${u.version}") },
+            text = {
+                Text(u.notes.ifBlank { "有可用更新，是否现在更新？" }.take(300))
+            },
+            confirmButton = { TextButton(onClick = vm::startUpdate) { Text("立即更新") } },
+            dismissButton = { TextButton(onClick = vm::dismissUpdate) { Text("稍后") } },
         )
     }
 }
