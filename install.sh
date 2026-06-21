@@ -70,7 +70,11 @@ else
   brew install agents-hud
 fi
 
-# ── 5. 作为后台服务启动（launchd，开机自启 + 崩溃重启）──────────────────────────
+# ── 5. 安装 Claude Code hooks + statusLine（状态/用量更准更实时）──────────────────
+info "安装 Claude Code hooks..."
+agents-hud setup-hooks || warn "hooks 安装失败，可稍后手动运行：agents-hud setup-hooks"
+
+# ── 6. 作为后台服务启动（launchd，开机自启 + 崩溃重启）──────────────────────────
 info "启动后台服务..."
 brew services start agents-hud >/dev/null 2>&1 || brew services restart agents-hud >/dev/null 2>&1 || true
 
@@ -89,6 +93,7 @@ else
   warn "服务已安装，但端口 ${PORT} 暂未响应（可能正在启动，或被占用）。"
   echo "   查看日志：tail -f \"\$(brew --prefix)/var/log/agents-hud.log\""
 fi
-echo "  • 看配对二维码（前台运行一次）：agents-hud"
-echo "  • 服务管理：brew services [start|stop|restart] agents-hud"
+echo "  • 已安装 Claude Code hooks —— 重启正在运行的 Claude 会话即可生效。"
+echo "  • 看配对二维码：agents-hud connect"
+echo "  • 服务管理：agents-hud [start|stop|restart|status|update]"
 echo "  • 手机用 AgentsHUD App 扫码连接（需同一局域网）。"

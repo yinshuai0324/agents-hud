@@ -19,7 +19,7 @@ class AgentsHud < Formula
       system "npm", "run", "build"
       # Drop dev deps (tsx/typescript) — the compiled dist/ only needs runtime deps.
       system "npm", "prune", "--omit=dev"
-      libexec.install "dist", "node_modules", "package.json"
+      libexec.install "dist", "node_modules", "package.json", "hooks"
     end
 
     # Launcher that runs the compiled server with the installed Homebrew node.

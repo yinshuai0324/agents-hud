@@ -58,19 +58,30 @@ function main() {
   const uninstall = process.argv.includes("--uninstall");
   const cfg = loadConfig();
   const settingsPath = path.join(cfg.claudeDir, "settings.json");
-  const scriptPath = hookScriptPath();
-  const statusPath = statuslineScriptPath();
 
-  if (!fs.existsSync(scriptPath)) {
-    console.error(`Hook script not found at ${scriptPath}`);
-    process.exit(1);
-  }
-  // Ensure both bridge scripts are executable.
-  for (const p of [scriptPath, statusPath]) {
-    try {
-      fs.chmodSync(p, 0o755);
-    } catch {
-      /* best effort */
+  // Copy the bridge scripts to a stable location under ~/.claude so the paths
+  // written into settings.json survive Homebrew upgrades (the install dir is
+  // versioned and changes every release).
+  const destDir = path.join(cfg.claudeDir, "agents-hud");
+  const scriptPath = path.join(destDir, "cc-signal-hook.sh");
+  const statusPath = path.join(destDir, "cc-signal-statusline.sh");
+
+  if (!uninstall) {
+    const srcScript = hookScriptPath();
+    const srcStatus = statuslineScriptPath();
+    if (!fs.existsSync(srcScript)) {
+      console.error(`Hook script not found at ${srcScript}`);
+      process.exit(1);
+    }
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(srcScript, scriptPath);
+    fs.copyFileSync(srcStatus, statusPath);
+    for (const p of [scriptPath, statusPath]) {
+      try {
+        fs.chmodSync(p, 0o755);
+      } catch {
+        /* best effort */
+      }
     }
   }
 

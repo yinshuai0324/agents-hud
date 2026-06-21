@@ -76,27 +76,32 @@ agents-hud start       # 启动后台服务（brew services，开机自启）
 agents-hud stop        # 停止
 agents-hud restart     # 重启
 agents-hud status      # 查看服务状态
-agents-hud update      # 拉取最新版本并升级（有更新才重启）
-agents-hud connect     # 打印配对二维码 + 连接信息（手机扫码）
-agents-hud serve       # 前台运行（默认；launchd 即调用此项）
-agents-hud help        # 帮助
+agents-hud update          # 拉取最新版本并升级（有更新才重启）
+agents-hud connect         # 打印配对二维码 + 连接信息（手机扫码）
+agents-hud setup-hooks     # 安装 Claude Code hooks + statusLine
+agents-hud uninstall-hooks # 移除 hooks
+agents-hud serve           # 前台运行（默认；launchd 即调用此项）
+agents-hud help            # 帮助
 ```
 
-### 2.（推荐）安装 Claude Code hooks + statusLine
+### 2. 安装 Claude Code hooks + statusLine
+
+> 方式 A 的一键脚本**已自动安装** hooks，可跳过本步。
 
 不装也能用（靠文件监听推断状态），但装上后状态最准确、最实时，且能拿到**官方用量、上下文剩余、
 会话标题、当前模型、实时工具调用**：
 
 ```bash
-cd server
-npm run setup-hooks        # 写入 ~/.claude/settings.json（自动备份）
+agents-hud setup-hooks       # brew 安装方式（写入 ~/.claude/settings.json，自动备份）
+agents-hud uninstall-hooks   # 需要时干净移除
+# 源码运行则用：cd server && npm run setup-hooks / npm run uninstall-hooks
 # 之后重启正在运行的 Claude Code 会话即可生效
-npm run uninstall-hooks    # 需要时干净移除
 ```
 
 它会在这些事件上注册一个 fire-and-forget 的回调（不阻塞 Claude）：
 `UserPromptSubmit / PreToolUse / PostToolUse / Stop / StopFailure / Notification / SessionStart / SessionEnd`，
-并接管 statusLine 以获取 Claude 自己的 `rate_limits` / `context_window` / `model` 等。
+并接管 statusLine 以获取 Claude 自己的 `rate_limits` / `context_window` / `model` 等。桥接脚本会被复制到
+`~/.claude/agents-hud/`（稳定路径，不受 brew 升级影响）。
 
 ### 3. 安装 Android App
 

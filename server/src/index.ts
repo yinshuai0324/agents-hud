@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import { ClaudeProvider } from "./providers/claude.js";
 import { StateEngine } from "./state.js";
@@ -110,19 +111,29 @@ function update(): number {
   return 0;
 }
 
+/** Run the compiled setup-hooks script (install or uninstall Claude hooks). */
+function setupHooks(uninstall: boolean): number {
+  const script = fileURLToPath(new URL("./setup-hooks.js", import.meta.url));
+  const args = uninstall ? [script, "--uninstall"] : [script];
+  const r = spawnSync(process.execPath, args, { stdio: "inherit" });
+  return r.status ?? (r.error ? 1 : 0);
+}
+
 function help(): void {
   console.log(`AgentsHUD —— Claude Code 状态面板服务
 
 用法: agents-hud <命令>
 
-  start      启动后台服务（brew services，开机自启）
-  stop       停止后台服务
-  restart    重启后台服务
-  status     查看服务状态
-  update     拉取最新版本并升级（有更新才重启）
-  connect    显示配对二维码与连接信息（手机 App 扫码）
-  serve      在前台运行服务（默认；launchd 调用此项）
-  help       显示本帮助
+  start            启动后台服务（brew services，开机自启）
+  stop             停止后台服务
+  restart          重启后台服务
+  status           查看服务状态
+  update           拉取最新版本并升级（有更新才重启）
+  connect          显示配对二维码与连接信息（手机 App 扫码）
+  setup-hooks      安装 Claude Code hooks + statusLine（状态/用量更准更实时）
+  uninstall-hooks  移除上面安装的 hooks
+  serve            在前台运行服务（默认；launchd 调用此项）
+  help             显示本帮助
 
 无参数时等同于 serve。`);
 }
@@ -152,6 +163,14 @@ switch (cmd) {
   case "update":
   case "upgrade":
     process.exit(update());
+    break;
+  case "setup-hooks":
+  case "hooks":
+    process.exit(setupHooks(false));
+    break;
+  case "uninstall-hooks":
+  case "unhooks":
+    process.exit(setupHooks(true));
     break;
   case "help":
   case "-h":
