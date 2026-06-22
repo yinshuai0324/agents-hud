@@ -70,12 +70,6 @@ export interface Provider {
    * disposer.
    */
   watch(onChange: (sessionId: string | null) => void): () => void;
-  /**
-   * Sum "new work" tokens (input + output + cacheCreate) across today and the
-   * last 7 days, by scanning transcripts modified within the window. Optional —
-   * the engine caches the result so it can scan a wider window than collect().
-   */
-  recentUsage?(now: number): Promise<{ today: number; sevenDay: number }>;
 }
 
 export function emptyUsage(): TokenUsage {

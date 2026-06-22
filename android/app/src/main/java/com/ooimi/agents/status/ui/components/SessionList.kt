@@ -1,6 +1,8 @@
 package com.ooimi.agents.status.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.LocalOverscrollConfiguration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,10 +12,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,14 +35,33 @@ import com.ooimi.agents.status.ui.theme.CCColors
 import com.ooimi.agents.status.ui.theme.stateColor
 import com.ooimi.agents.status.ui.theme.stateLabel
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SessionList(sessions: List<Session>, modifier: Modifier = Modifier) {
-    LazyColumn(
-        modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        items(sessions, key = { it.id }) { s ->
-            SessionRow(s)
+    val listState = rememberLazyListState()
+    // Keep the list pinned to the top so the newest session is always in view as
+    // updates stream in — but only while the user is already at the top. Once
+    // they scroll down to look at older sessions we leave their position alone.
+    val pinnedToTop by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        }
+    }
+    val topId = sessions.firstOrNull()?.id
+    LaunchedEffect(topId, sessions.size) {
+        if (pinnedToTop) listState.scrollToItem(0)
+    }
+
+    // Disable the edge overscroll glow/stretch when the list hits top/bottom.
+    CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+        LazyColumn(
+            modifier.fillMaxWidth(),
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            items(sessions, key = { it.id }) { s ->
+                SessionRow(s)
+            }
         }
     }
 }

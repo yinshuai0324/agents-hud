@@ -40,8 +40,6 @@ fun UsageBar(
     live: Boolean,
     sevenPercent: Int?,
     sevenResetMin: Int,
-    todayTokens: Long,
-    sevenDayTokens: Long,
     currentModel: String,
     modifier: Modifier = Modifier,
 ) {
@@ -83,38 +81,6 @@ fun UsageBar(
             )
         }
 
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "今日消耗",
-                color = CCColors.TextSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = formatTokens(todayTokens) + " tokens",
-                color = CCColors.TextPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "近 7 天",
-                color = CCColors.TextSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = formatTokens(sevenDayTokens) + " tokens",
-                color = CCColors.TextPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
         if (currentModel.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -133,12 +99,6 @@ fun UsageBar(
             }
         }
     }
-}
-
-private fun formatTokens(t: Long): String = when {
-    t >= 1_000_000 -> String.format("%.1fM", t / 1_000_000.0)
-    t >= 1_000 -> String.format("%.1fk", t / 1_000.0)
-    else -> t.toString()
 }
 
 @Composable

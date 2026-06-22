@@ -19,7 +19,6 @@ data class Snapshot(
     /** Weekly (7-day) limit, present only when Claude provides it. */
     val usage7d: UsageWindow? = null,
     val sessions: List<Session> = emptyList(),
-    val totals: Totals = Totals(),
     val ts: String = "",
 )
 
@@ -65,12 +64,6 @@ data class Session(
     val contextTokens: Long = 0,
     val contextLeftPercent: Int = 0,
     val currentTool: String = "",
-)
-
-@Serializable
-data class Totals(
-    val todayTokens: Long = 0,
-    val sevenDayTokens: Long = 0,
 )
 
 /** Session state shared by sessions and the dominant indicator. */

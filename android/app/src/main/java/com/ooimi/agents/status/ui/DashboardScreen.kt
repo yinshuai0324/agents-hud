@@ -97,8 +97,6 @@ fun DashboardScreen(
                         live = snapshot?.usage5h?.source == "live",
                         sevenPercent = snapshot?.usage7d?.percent,
                         sevenResetMin = snapshot?.usage7d?.resetInMinutes ?: 0,
-                        todayTokens = snapshot?.totals?.todayTokens ?: 0,
-                        sevenDayTokens = snapshot?.totals?.sevenDayTokens ?: 0,
                         currentModel = snapshot?.model ?: "",
                     )
 

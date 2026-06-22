@@ -86,76 +86,6 @@ export class ClaudeProvider implements Provider {
     return { sessions, usageEvents };
   }
 
-  /**
-   * Sum "new work" tokens across today and the last 7 days by scanning every
-   * transcript modified within the past week (a wider window than collect()).
-   */
-  async recentUsage(now: number): Promise<{ today: number; sevenDay: number }> {
-    const dayStart = new Date(now);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayMs = dayStart.getTime();
-    const weekMs = now - 7 * 24 * 60 * 60 * 1000;
-    let today = 0;
-    let sevenDay = 0;
-
-    let dirEntries: fs.Dirent[];
-    try {
-      dirEntries = await fsp.readdir(this.cfg.projectsDir, { withFileTypes: true });
-    } catch {
-      return { today, sevenDay };
-    }
-    for (const projDir of dirEntries) {
-      if (!projDir.isDirectory()) continue;
-      const dirPath = path.join(this.cfg.projectsDir, projDir.name);
-      let files: string[];
-      try {
-        files = await fsp.readdir(dirPath);
-      } catch {
-        continue;
-      }
-      for (const file of files) {
-        if (!file.endsWith(".jsonl")) continue;
-        const full = path.join(dirPath, file);
-        try {
-          if ((await fsp.stat(full)).mtimeMs < weekMs) continue; // untouched in 7d
-        } catch {
-          continue;
-        }
-        let stream: fs.ReadStream;
-        try {
-          stream = fs.createReadStream(full, { encoding: "utf8" });
-        } catch {
-          continue;
-        }
-        const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-        try {
-          for await (const line of rl) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            let d: any;
-            try {
-              d = JSON.parse(trimmed);
-            } catch {
-              continue;
-            }
-            if (d.type !== "assistant" || !d.message?.usage) continue;
-            const ts = typeof d.timestamp === "string" ? Date.parse(d.timestamp) : NaN;
-            if (!Number.isFinite(ts) || ts < weekMs) continue;
-            const work = messageWork(d.message.usage);
-            sevenDay += work;
-            if (ts >= dayMs) today += work;
-          }
-        } catch {
-          // partial/locked file — count whatever we read
-        } finally {
-          rl.close();
-          stream.close();
-        }
-      }
-    }
-    return { today, sevenDay };
-  }
-
   private async parseFile(
     filePath: string,
     sessionId: string,
@@ -170,6 +100,10 @@ export class ClaudeProvider implements Provider {
     // Current context occupancy = the most recent request's input + cache. The
     // last assistant message wins (transcript is chronological).
     let contextTokens = 0;
+    // One assistant turn spans several JSONL lines (one per content block), each
+    // repeating the same `usage`. Count tokens once per message.id; without this
+    // a session's totals (and the 5h estimate) inflate ~2-3x.
+    const countedMsgIds = new Set<string>();
 
     let stream: fs.ReadStream;
     try {
@@ -199,8 +133,13 @@ export class ClaudeProvider implements Provider {
           if (typeof d.message.model === "string") model = d.message.model;
           const u = d.message.usage;
           if (u) {
-            const newWork = addUsage(usage, u);
-            if (Number.isFinite(ts) && newWork > 0) usageEvents.push({ ts, tokens: newWork });
+            const id = typeof d.message.id === "string" ? d.message.id : "";
+            const isDup = id ? countedMsgIds.has(id) : false;
+            if (id) countedMsgIds.add(id);
+            if (!isDup) {
+              const newWork = addUsage(usage, u);
+              if (Number.isFinite(ts) && newWork > 0) usageEvents.push({ ts, tokens: newWork });
+            }
             contextTokens =
               (Number(u.input_tokens) || 0) +
               (Number(u.cache_read_input_tokens) || 0) +
