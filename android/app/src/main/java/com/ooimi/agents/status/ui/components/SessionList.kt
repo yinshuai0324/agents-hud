@@ -21,7 +21,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,17 +41,22 @@ import com.ooimi.agents.status.ui.theme.stateLabel
 @Composable
 fun SessionList(sessions: List<Session>, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
-    // Keep the list pinned to the top so the newest session is always in view as
-    // updates stream in — but only while the user is already at the top. Once
-    // they scroll down to look at older sessions we leave their position alone.
-    val pinnedToTop by remember {
+    val atTop by remember {
         derivedStateOf {
             listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
         }
     }
+    // Follow the newest session unless the user scrolled away to read older ones.
+    // Only a settled *scroll* updates this intent; the layout shift from a new
+    // item being prepended (which would otherwise read as "not at top") does not,
+    // so re-pinning keeps working when a new session arrives while we're at top.
+    var following by remember { mutableStateOf(true) }
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress) following = atTop
+    }
     val topId = sessions.firstOrNull()?.id
-    LaunchedEffect(topId, sessions.size) {
-        if (pinnedToTop) listState.scrollToItem(0)
+    LaunchedEffect(topId, sessions.size, following) {
+        if (following) listState.scrollToItem(0)
     }
 
     // Disable the edge overscroll glow/stretch when the list hits top/bottom.
