@@ -1,6 +1,6 @@
 {
   "name": "agents-hud-server",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "description": "AgentsHUD — computer-side server that watches Claude Code state and serves it to the Android app over LAN.",
