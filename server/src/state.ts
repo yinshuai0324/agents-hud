@@ -138,17 +138,36 @@ function prettyModel(id: string): string {
 
 /** Real statusLine usage is trusted for this long before falling back to estimate. */
 const LIVE_TTL_MS = 20 * 60_000;
+const FIVE_HOUR_MS = 5 * 60 * 60_000;
+const SEVEN_DAY_MS = 7 * 24 * 60 * 60_000;
 
 /**
- * A live rate-limit window stays valid until it actually resets — the percentage
- * is meaningful for the whole window, not just for [LIVE_TTL_MS]. Without a known
- * reset time we fall back to the short TTL. This keeps the real 5h/7d numbers on
- * screen across an idle stretch or a reconnect instead of dropping to estimate.
+ * Resolve a live rate-limit window to what should be shown *right now*, rolling it
+ * forward across any reset boundaries that have already elapsed.
+ *
+ * While the original window is still open we show Claude's real percentage. Once
+ * its `resets_at` passes, the limit has reset to 0 and a fresh window of the same
+ * length begins — so we keep the gauge "live" at 0% (advancing `resets_at` by whole
+ * window lengths) until the next statusLine reports real numbers, instead of
+ * dropping the bar to "等待上报" the moment the window flips. Without a known reset
+ * time we fall back to the short [LIVE_TTL_MS].
+ *
+ * Returns null when the window is unknown or the TTL fallback has expired.
  */
-function liveWindowValid(w: LiveWindow | null, now: number): boolean {
-  if (!w) return false;
-  if (w.resetsAt != null) return now < w.resetsAt;
-  return now - w.ts < LIVE_TTL_MS;
+function effectiveLiveWindow(
+  w: LiveWindow | null,
+  windowMs: number,
+  now: number,
+): { percent: number; resetsAt: number | null } | null {
+  if (!w) return null;
+  if (w.resetsAt == null) {
+    return now - w.ts < LIVE_TTL_MS ? { percent: w.percent, resetsAt: null } : null;
+  }
+  if (now < w.resetsAt) return { percent: w.percent, resetsAt: w.resetsAt };
+  // The window reset while no fresh statusLine arrived — roll forward to the
+  // current window and show it freshly empty until real numbers land.
+  const periods = Math.floor((now - w.resetsAt) / windowMs) + 1;
+  return { percent: 0, resetsAt: w.resetsAt + periods * windowMs };
 }
 
 export class StateEngine {
@@ -554,20 +573,22 @@ export class StateEngine {
 
     // Prefer Claude's real 5h numbers (from statusLine) over the local estimate.
     let usage5h: Usage5h = computeUsage5h(this.usageEvents, this.cfg, now);
-    if (liveWindowValid(this.liveFiveHour, now)) {
+    const liveFive = effectiveLiveWindow(this.liveFiveHour, FIVE_HOUR_MS, now);
+    if (liveFive) {
       usage5h = {
         ...usage5h,
-        percent: this.liveFiveHour!.percent,
-        resetInMinutes: minutesUntil(this.liveFiveHour!.resetsAt, now) ?? usage5h.resetInMinutes,
+        percent: liveFive.percent,
+        resetInMinutes: minutesUntil(liveFive.resetsAt, now) ?? usage5h.resetInMinutes,
         source: "live",
       };
     }
 
     let usage7d: UsageWindow | null = null;
-    if (liveWindowValid(this.liveSevenDay, now)) {
+    const liveSeven = effectiveLiveWindow(this.liveSevenDay, SEVEN_DAY_MS, now);
+    if (liveSeven) {
       usage7d = {
-        percent: this.liveSevenDay!.percent,
-        resetInMinutes: minutesUntil(this.liveSevenDay!.resetsAt, now) ?? 0,
+        percent: liveSeven.percent,
+        resetInMinutes: minutesUntil(liveSeven.resetsAt, now) ?? 0,
       };
     }
 
