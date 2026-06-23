@@ -18,6 +18,8 @@ data class Snapshot(
     val usage5h: Usage5h = Usage5h(),
     /** Weekly (7-day) limit, present only when Claude provides it. */
     val usage7d: UsageWindow? = null,
+    /** Today's total spend across all sessions (local day): tokens + equiv. USD. */
+    val today: TodayUsage = TodayUsage(),
     val sessions: List<Session> = emptyList(),
     /** Live output generation speed (tokens/sec) of the fastest streaming session. */
     val outputTokensPerSec: Int = 0,
@@ -28,6 +30,16 @@ data class Snapshot(
 data class UsageWindow(
     val percent: Int = 0,
     val resetInMinutes: Int = 0,
+)
+
+@Serializable
+data class TodayUsage(
+    /** Conversation tokens today: input + output (the "real work"). */
+    val tokens: Long = 0,
+    /** Cache-write tokens today (prompt caching); usually dwarfs [tokens]. */
+    val cacheWriteTokens: Long = 0,
+    /** Equivalent pay-as-you-go cost in USD (billing-accurate; includes cache read). */
+    val costUSD: Double = 0.0,
 )
 
 @Serializable

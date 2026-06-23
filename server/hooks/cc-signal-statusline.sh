@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CC 信号塔 statusLine bridge.
+# Agents-HUD statusLine bridge.
 # Claude Code pipes its statusLine JSON to this script on stdin. That payload
 # carries the REAL plan usage (rate_limits.five_hour / seven_day) which Claude
 # fetched from /api/oauth/usage. We forward it to the local server, then print a

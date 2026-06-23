@@ -43,6 +43,9 @@ fun UsageBar(
     currentModel: String,
     burnRatePerMin: Long,
     outputTokensPerSec: Int,
+    todayTokens: Long,
+    todayCacheTokens: Long,
+    todayCostUSD: Double,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -101,6 +104,31 @@ fun UsageBar(
             }
         }
 
+        // Today's spend: conversation tokens, then cache-write tokens + equivalent
+        // cost, so the headline number matches intuition and the cache bulk is
+        // visible but clearly separated.
+        if (todayTokens > 0 || todayCacheTokens > 0) {
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "今日消耗",
+                    color = CCColors.TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = buildString {
+                        append(fmtTokens(todayTokens)); append(" tokens")
+                        if (todayCacheTokens > 0) { append(" +"); append(fmtTokens(todayCacheTokens)); append(" 缓存") }
+                        append(" · "); append(fmtUsd(todayCostUSD))
+                    },
+                    color = CCColors.TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+
         // Speed line: 5h consumption burn rate + live output generation speed.
         val speed = buildList {
             if (burnRatePerMin > 0) add("燃烧 ${fmtRate(burnRatePerMin)}/分")
@@ -129,6 +157,17 @@ fun UsageBar(
 private fun fmtRate(t: Long): String = when {
     t >= 1_000 -> String.format("%.1fk", t / 1_000.0)
     else -> t.toString()
+}
+
+private fun fmtTokens(t: Long): String = when {
+    t >= 1_000_000 -> String.format("%.1fM", t / 1_000_000.0)
+    t >= 1_000 -> String.format("%.1fk", t / 1_000.0)
+    else -> t.toString()
+}
+
+private fun fmtUsd(v: Double): String = when {
+    v >= 100 -> "$" + String.format("%.0f", v)
+    else -> "$" + String.format("%.2f", v)
 }
 
 @Composable

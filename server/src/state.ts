@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Config } from "./config.js";
 import type { Provider, SessionData, SessionState } from "./providers/types.js";
 import { computeUsage5h, type Usage5h } from "./usage5h.js";
+import { computeTodayUsage, type TodayUsage } from "./today.js";
 import { resolvePlan } from "./plan.js";
 
 /** A secondary usage window (e.g. weekly), shown alongside the 5h gauge. */
@@ -30,6 +31,8 @@ export interface Snapshot {
   usage5h: Usage5h;
   /** Weekly (7-day) limit from Claude, when available; otherwise null. */
   usage7d: UsageWindow | null;
+  /** Today's total spend across all sessions (local-day), tokens + equiv. USD. */
+  today: TodayUsage;
   sessions: WireSession[];
   /** Live output generation speed (tokens/sec) of the fastest streaming session. */
   outputTokensPerSec: number;
@@ -158,6 +161,8 @@ export class StateEngine {
   private liveFiveHour: LiveWindow | null = null;
   private liveSevenDay: LiveWindow | null = null;
   private liveSessions = new Map<string, LiveSession>();
+  /** Cached full-disk tally of today's spend; refreshed on a slow timer. */
+  private todayUsage: TodayUsage = { tokens: 0, cacheWriteTokens: 0, costUSD: 0 };
 
   constructor(
     private cfg: Config,
@@ -207,11 +212,26 @@ export class StateEngine {
     const tickTimer = setInterval(() => this.tickAndEmit(), 1000);
     this.disposers.push(() => clearInterval(refreshTimer));
     this.disposers.push(() => clearInterval(tickTimer));
+    // Today's spend is a full-disk scan, so compute it on a slower cadence and
+    // cache the result for the snapshot. Runs once now, then every 30s.
+    void this.refreshTodayUsage();
+    const todayTimer = setInterval(() => void this.refreshTodayUsage(), 30_000);
+    this.disposers.push(() => clearInterval(todayTimer));
   }
 
   stop(): void {
     for (const d of this.disposers) d();
     this.disposers = [];
+  }
+
+  /** Recompute today's spend from disk and push if it moved the snapshot. */
+  private async refreshTodayUsage(): Promise<void> {
+    try {
+      this.todayUsage = await computeTodayUsage(this.cfg);
+    } catch {
+      return; // keep the last good value
+    }
+    this.tickAndEmit();
   }
 
   /** Re-read all providers from disk and reconcile runtime state. */
@@ -566,6 +586,7 @@ export class StateEngine {
       },
       usage5h,
       usage7d,
+      today: this.todayUsage,
       sessions: wire,
       outputTokensPerSec,
       ts: new Date(now).toISOString(),

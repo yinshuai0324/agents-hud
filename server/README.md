@@ -1,4 +1,4 @@
-# CC 信号塔 — Server
+# Agents-HUD — Server
 
 电脑端 Node + TypeScript 服务。读取本机 `~/.claude` 数据，结合 Claude Code hooks 推断
 会话状态，通过 WebSocket / REST 把快照推送给 Android App，并在终端打印配对二维码。

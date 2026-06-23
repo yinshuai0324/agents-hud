@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CC 信号塔 hook bridge.
+# Agents-HUD hook bridge.
 # Claude Code pipes the hook event JSON to this script on stdin. We forward it
 # verbatim to the local server, which derives session status from it.
 #

@@ -122,6 +122,9 @@ fun DashboardScreen(
                         currentModel = snapshot?.model ?: "",
                         burnRatePerMin = snapshot?.usage5h?.burnRatePerMin ?: 0,
                         outputTokensPerSec = snapshot?.outputTokensPerSec ?: 0,
+                        todayTokens = snapshot?.today?.tokens ?: 0,
+                        todayCacheTokens = snapshot?.today?.cacheWriteTokens ?: 0,
+                        todayCostUSD = snapshot?.today?.costUSD ?: 0.0,
                     )
 
                     Spacer(Modifier.weight(1f))

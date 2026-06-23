@@ -166,7 +166,7 @@ private fun PermissionPrompt(onRequest: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "CC 信号塔 需要相机权限来扫码连接",
+            text = "Agents-HUD 需要相机权限来扫码连接",
             color = CCColors.TextPrimary,
             fontSize = 16.sp,
             textAlign = TextAlign.Center,

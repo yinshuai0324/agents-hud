@@ -1,10 +1,10 @@
 /**
- * Installs (or removes) the CC 信号塔 hook bridge into ~/.claude/settings.json.
+ * Installs (or removes) the Agents-HUD hook bridge into ~/.claude/settings.json.
  *
  *   npm run setup-hooks        # install
  *   npm run uninstall-hooks    # remove (restores nothing else; only our entries)
  *
- * Idempotent: existing CC 信号塔 entries are stripped before (re)adding, and the
+ * Idempotent: existing Agents-HUD entries are stripped before (re)adding, and the
  * original settings.json is backed up to settings.json.cc-signal.bak on install.
  */
 import fs from "node:fs";
@@ -41,7 +41,7 @@ function isOurEntry(group: any): boolean {
   return hooks.some((h: any) => typeof h?.command === "string" && h.command.includes(MARKER));
 }
 
-/** Remove all CC 信号塔 groups from an event's matcher-group array. */
+/** Remove all Agents-HUD groups from an event's matcher-group array. */
 function stripOurs(groups: any[]): any[] {
   return groups.filter((g) => !isOurEntry(g));
 }
@@ -110,7 +110,7 @@ function main() {
   if (uninstall) {
     if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-    console.log(`✓ Removed CC 信号塔 hooks + statusLine from ${settingsPath}`);
+    console.log(`✓ Removed Agents-HUD hooks + statusLine from ${settingsPath}`);
     return;
   }
 
@@ -158,7 +158,7 @@ function main() {
   }
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  console.log(`✓ Installed CC 信号塔 hooks into ${settingsPath}`);
+  console.log(`✓ Installed Agents-HUD hooks into ${settingsPath}`);
   console.log(`  Hook script : ${scriptPath}`);
   console.log(`  Port        : ${cfg.port}`);
   console.log(`  Events      : ${EVENTS.join(", ")}`);

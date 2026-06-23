@@ -1,4 +1,4 @@
-# CC 信号塔 — Android
+# Agents-HUD — Android
 
 Kotlin + Jetpack Compose 客户端。扫描电脑端二维码后，通过局域网 WebSocket 实时显示
 Claude Code 的红绿灯状态、5 小时用量和会话列表。
