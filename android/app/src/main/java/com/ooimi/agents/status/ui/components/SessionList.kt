@@ -1,5 +1,7 @@
 package com.ooimi.agents.status.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
@@ -55,8 +57,12 @@ fun SessionList(sessions: List<Session>, modifier: Modifier = Modifier) {
         if (!listState.isScrollInProgress) following = atTop
     }
     val topId = sessions.firstOrNull()?.id
-    LaunchedEffect(topId, sessions.size, following) {
-        if (following) listState.scrollToItem(0)
+    LaunchedEffect(topId, sessions.size) {
+        // Always re-pin to the top when following. When the list fits on screen
+        // this is a harmless no-op (nothing to scroll) and the swap animation
+        // still plays; when it overflows it pulls the newest item — which a keyed
+        // LazyColumn would otherwise anchor off-screen above — back into view.
+        if (following) listState.animateScrollToItem(0)
     }
 
     // Disable the edge overscroll glow/stretch when the list hits top/bottom.
@@ -67,16 +73,24 @@ fun SessionList(sessions: List<Session>, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(sessions, key = { it.id }) { s ->
-                SessionRow(s)
+                // animateItem's placementSpec is the "swap" animation: when two
+                // sessions trade order, one slides up while the other slides down.
+                // A clear 350ms ease makes the exchange readable, not a flicker.
+                SessionRow(
+                    s,
+                    Modifier.animateItem(
+                        placementSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+                    ),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SessionRow(session: Session) {
+private fun SessionRow(session: Session, modifier: Modifier = Modifier) {
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(CCColors.Card.copy(alpha = 0.5f))

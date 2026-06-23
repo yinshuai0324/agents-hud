@@ -2,7 +2,9 @@ package com.ooimi.agents.status.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.clickable
@@ -25,8 +28,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,13 +64,28 @@ fun DashboardScreen(
             .background(Brush.verticalGradient(listOf(CCColors.BgTop, CCColors.BgBottom))),
     ) {
         val connected = connection == ConnectionState.CONNECTED
-        // Live status only counts while connected; otherwise the light goes dark,
-        // the tallies reset to zero, and the rest of the (now stale) data is dimmed.
+        // Active = sessions touched within the last hour (by lastActivity). Both
+        // the list and the traffic light work off this same set.
+        val now = System.currentTimeMillis()
+        val activeSessions = if (connected) {
+            (snapshot?.sessions ?: emptyList()).filter {
+                it.lastActivity > 0 && now - it.lastActivity < ACTIVE_WINDOW_MS
+            }
+        } else {
+            emptyList()
+        }
+        // Live status only counts while connected; otherwise the light goes dark
+        // and the rest of the (now stale) data is dimmed. The light follows the
+        // most recently active session (list is newest-first), so any new state
+        // drives it immediately instead of sticking on a fixed priority winner.
         val dominant = if (connected) {
-            LightState.from(snapshot?.status?.dominant ?: "quiet")
+            activeSessions.firstOrNull()?.let { LightState.from(it.state) } ?: LightState.QUIET
         } else {
             null
         }
+        // Bottom tallies are counted over the same active (≤1h) set, so they match
+        // the list and the light rather than every session the server still holds.
+        val stateCounts = activeSessions.groupingBy { it.state }.eachCount()
         val dataAlpha = if (connected) 1f else 0.35f
         Row(
             Modifier
@@ -98,15 +120,17 @@ fun DashboardScreen(
                         sevenPercent = snapshot?.usage7d?.percent,
                         sevenResetMin = snapshot?.usage7d?.resetInMinutes ?: 0,
                         currentModel = snapshot?.model ?: "",
+                        burnRatePerMin = snapshot?.usage5h?.burnRatePerMin ?: 0,
+                        outputTokensPerSec = snapshot?.outputTokensPerSec ?: 0,
                     )
 
                     Spacer(Modifier.weight(1f))
                     Counters(
-                        waiting = if (connected) snapshot?.status?.waiting ?: 0 else 0,
-                        working = if (connected) snapshot?.status?.working ?: 0 else 0,
-                        quiet = if (connected) snapshot?.status?.quiet ?: 0 else 0,
-                        notify = if (connected) snapshot?.status?.notify ?: 0 else 0,
-                        error = if (connected) snapshot?.status?.error ?: 0 else 0,
+                        waiting = stateCounts["waiting"] ?: 0,
+                        working = stateCounts["working"] ?: 0,
+                        quiet = stateCounts["quiet"] ?: 0,
+                        notify = stateCounts["notify"] ?: 0,
+                        error = stateCounts["error"] ?: 0,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -116,11 +140,10 @@ fun DashboardScreen(
 
             // Right column: the session list — kept narrower so the light has room.
             Column(Modifier.weight(1.15f).fillMaxHeight().alpha(dataAlpha)) {
-                val sessions = snapshot?.sessions ?: emptyList()
-                if (sessions.isEmpty()) {
+                if (activeSessions.isEmpty()) {
                     EmptyState(connection)
                 } else {
-                    SessionList(sessions = sessions, modifier = Modifier.fillMaxSize())
+                    SessionList(sessions = activeSessions, modifier = Modifier.fillMaxSize())
                 }
             }
         }
@@ -277,17 +300,52 @@ private fun lastUpdatedLabel(ts: String?): String {
     }
 }
 
+/** Sessions older than this (by lastActivity) are treated as inactive. */
+private const val ACTIVE_WINDOW_MS = 60L * 60 * 1000
+
 @Composable
 private fun EmptyState(connection: ConnectionState) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Column(
+        Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        EmptyIcon()
+        Spacer(Modifier.height(12.dp))
         Text(
             text = when (connection) {
-                ConnectionState.CONNECTED -> "暂无活动会话"
+                ConnectionState.CONNECTED -> "暂无活动中的会话"
                 ConnectionState.CONNECTING -> "正在连接服务器…"
                 ConnectionState.DISCONNECTED -> "连接已断开，正在重连…"
             },
             color = CCColors.TextSecondary,
             fontSize = 14.sp,
+        )
+    }
+}
+
+/** A faint "empty tray" glyph drawn inline so it needs no icon dependency. */
+@Composable
+private fun EmptyIcon() {
+    val color = CCColors.TextFaint
+    Canvas(Modifier.size(46.dp)) {
+        val stroke = Stroke(width = 2.dp.toPx())
+        val pad = 7.dp.toPx()
+        val radius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(pad, pad),
+            size = Size(size.width - pad * 2, size.height - pad * 2),
+            cornerRadius = radius,
+            style = stroke,
+        )
+        // A short centered line hints at "nothing inside".
+        val midY = size.height / 2
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.33f, midY),
+            end = Offset(size.width * 0.67f, midY),
+            strokeWidth = 2.dp.toPx(),
         )
     }
 }

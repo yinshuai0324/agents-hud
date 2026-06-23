@@ -31,6 +31,8 @@ export interface Snapshot {
   /** Weekly (7-day) limit from Claude, when available; otherwise null. */
   usage7d: UsageWindow | null;
   sessions: WireSession[];
+  /** Live output generation speed (tokens/sec) of the fastest streaming session. */
+  outputTokensPerSec: number;
   ts: string;
 }
 
@@ -107,7 +109,16 @@ interface LiveSession {
   ctxLeft: number; // remaining_percentage, or -1 if unknown
   ctxTokens: number; // current context occupancy, or 0
   ts: number;
+  // Output-speed tracking: the current turn's output_tokens and when it was
+  // sampled, plus the most recent computed tok/s.
+  outputTokens: number;
+  outAt: number;
+  outTokPerSec: number;
 }
+
+/** Output-speed sampling window, mirroring claude-hud's speed-tracker. */
+const SPEED_MAX_DELTA_MS = 4000;
+const SPEED_MIN_DELTA_MS = 500;
 
 /** Friendly model name from a raw id, e.g. "claude-opus-4-8[1m]" -> "Opus 4.8 (1M)". */
 function prettyModel(id: string): string {
@@ -263,12 +274,39 @@ export class StateEngine {
         typeof data?.model?.display_name === "string"
           ? data.model.display_name
           : prettyModel(String(data?.model?.id ?? ""));
+
+      // Output speed (tok/s): the rate the current turn's output_tokens grows
+      // between statusLine updates. Mirrors claude-hud's speed-tracker.
+      const outNow = Number(cw?.current_usage?.output_tokens) || 0;
+      const prev = this.liveSessions.get(sid);
+      let outputTokens = outNow;
+      let outAt = now;
+      let outTokPerSec = 0;
+      if (prev) {
+        const dMs = now - prev.outAt;
+        if (outNow < prev.outputTokens) {
+          // Counter went backwards → a new turn started; reset the baseline.
+          outTokPerSec = 0;
+        } else if (dMs < SPEED_MIN_DELTA_MS) {
+          // Too soon to measure reliably; keep accumulating from the old sample.
+          outputTokens = prev.outputTokens;
+          outAt = prev.outAt;
+          outTokPerSec = prev.outTokPerSec;
+        } else if (dMs <= SPEED_MAX_DELTA_MS && outNow > prev.outputTokens) {
+          outTokPerSec = Math.round((outNow - prev.outputTokens) / (dMs / 1000));
+        }
+        // dMs > SPEED_MAX_DELTA_MS with no growth → stale; reset (speed 0).
+      }
+
       this.liveSessions.set(sid, {
         name: typeof data?.session_name === "string" ? data.session_name : "",
         model: modelName,
         ctxLeft,
         ctxTokens,
         ts: now,
+        outputTokens,
+        outAt,
+        outTokPerSec,
       });
     }
 
@@ -355,9 +393,13 @@ export class StateEngine {
     } else if (event !== "PostToolUse" && event !== "PostToolBatch") {
       rt.currentTool = "";
     }
-    if (cwd) {
-      const s = this.sessions.get(sessionId);
-      if (s && !s.cwd) {
+    const s = this.sessions.get(sessionId);
+    if (s) {
+      // Any hook signal is fresh activity — bump lastActivity so a new state
+      // (e.g. an approval prompt) moves this session to the top of the list,
+      // which is what now drives the traffic light.
+      s.lastActivity = now;
+      if (cwd && !s.cwd) {
         s.cwd = cwd;
         s.project = cwd.split("/").filter(Boolean).slice(-3).join("/") || s.project;
       }
@@ -477,13 +519,18 @@ export class StateEngine {
         live && live.model && now - live.ts < LIVE_TTL_MS ? live.model : prettyModel(top.model);
     }
 
-    // Most-attention-first: a failure or a pending approval outranks everything.
-    const dominant: SessionState =
-      error > 0 ? "error"
-      : notify > 0 ? "notify"
-      : waiting > 0 ? "waiting"
-      : working > 0 ? "working"
-      : "quiet";
+    // Live output speed: the fastest session still actively streaming.
+    let outputTokensPerSec = 0;
+    for (const live of this.liveSessions.values()) {
+      if (now - live.ts <= SPEED_MAX_DELTA_MS && live.outTokPerSec > outputTokensPerSec) {
+        outputTokensPerSec = live.outTokPerSec;
+      }
+    }
+
+    // Follow the most recently active session (wire is sorted newest-first), so
+    // the latest state change always drives the light — instead of a fixed
+    // priority that would stick on an old approval/error until it cleared.
+    const dominant: SessionState = top?.state ?? "quiet";
 
     // Prefer Claude's real 5h numbers (from statusLine) over the local estimate.
     let usage5h: Usage5h = computeUsage5h(this.usageEvents, this.cfg, now);
@@ -520,6 +567,7 @@ export class StateEngine {
       usage5h,
       usage7d,
       sessions: wire,
+      outputTokensPerSec,
       ts: new Date(now).toISOString(),
     };
   }

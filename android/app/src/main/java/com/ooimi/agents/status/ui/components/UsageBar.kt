@@ -41,6 +41,8 @@ fun UsageBar(
     sevenPercent: Int?,
     sevenResetMin: Int,
     currentModel: String,
+    burnRatePerMin: Long,
+    outputTokensPerSec: Int,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -82,7 +84,7 @@ fun UsageBar(
         }
 
         if (currentModel.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "当前模型",
@@ -98,7 +100,35 @@ fun UsageBar(
                 )
             }
         }
+
+        // Speed line: 5h consumption burn rate + live output generation speed.
+        val speed = buildList {
+            if (burnRatePerMin > 0) add("燃烧 ${fmtRate(burnRatePerMin)}/分")
+            if (outputTokensPerSec > 0) add("生成 $outputTokensPerSec tok/s")
+        }
+        if (speed.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "速度",
+                    color = CCColors.TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = speed.joinToString(" · "),
+                    color = CCColors.TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
     }
+}
+
+private fun fmtRate(t: Long): String = when {
+    t >= 1_000 -> String.format("%.1fk", t / 1_000.0)
+    else -> t.toString()
 }
 
 @Composable

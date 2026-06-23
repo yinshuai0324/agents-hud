@@ -19,6 +19,8 @@ data class Snapshot(
     /** Weekly (7-day) limit, present only when Claude provides it. */
     val usage7d: UsageWindow? = null,
     val sessions: List<Session> = emptyList(),
+    /** Live output generation speed (tokens/sec) of the fastest streaming session. */
+    val outputTokensPerSec: Int = 0,
     val ts: String = "",
 )
 
