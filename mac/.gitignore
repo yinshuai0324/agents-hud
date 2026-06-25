@@ -1,0 +1,9 @@
+# SwiftPM build output
+.build/
+# Packaged app bundle / installer
+*.app/
+*.dmg
+# Xcode (if opened there)
+.swiftpm/
+*.xcodeproj/xcuserdata/
+DerivedData/
