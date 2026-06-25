@@ -113,6 +113,9 @@ final class SignalClient: ObservableObject {
 
     private func listen(_ e: Int) {
         task?.receive { [weak self] result in
+            // Bind strongly here so the inner Task captures a constant, not the
+            // weak `self` var (which older Swift rejects in concurrent code).
+            guard let self else { return }
             switch result {
             case .success(let message):
                 var text: String?
@@ -122,7 +125,7 @@ final class SignalClient: ObservableObject {
                 @unknown default: text = nil
                 }
                 Task { @MainActor in
-                    guard let self, e == self.epoch else { return }
+                    guard e == self.epoch else { return }
                     self.connection = .connected
                     self.reconnectDelay = 1
                     if let text { self.decode(text) }
@@ -130,7 +133,7 @@ final class SignalClient: ObservableObject {
                 }
             case .failure:
                 Task { @MainActor in
-                    guard let self, e == self.epoch else { return }
+                    guard e == self.epoch else { return }
                     self.scheduleReconnect()
                 }
             }
@@ -151,9 +154,8 @@ final class SignalClient: ObservableObject {
     private func fetchInitial() {
         guard let url = httpURL() else { return }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data else { return }
+            guard let self, let data else { return }
             Task { @MainActor in
-                guard let self else { return }
                 if let snap = try? JSONDecoder().decode(Snapshot.self, from: data) {
                     if self.snapshot == nil { self.snapshot = snap }
                     self.connection = .connected

@@ -42,8 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Keep the menu-bar dot in sync with state changes + blink.
         iconObserver = client.objectWillChange.sink { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 self.statusItem.button?.image = self.client.menuBarIcon()
             }
         }
