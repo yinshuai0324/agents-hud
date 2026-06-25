@@ -65,7 +65,8 @@ defaults write com.ooimi.agents.hud.mac host  -string "127.0.0.1"
 | `Sources/AgentsHUD/Theme.swift` | 配色与状态色（移植自 Android `Theme.kt`） |
 | `Sources/AgentsHUD/Components.swift` | 用量条 + 格式化工具 |
 | `Sources/AgentsHUD/PanelView.swift` | 悬浮面板 + 毛玻璃背景（镜像 `DashboardScreen.kt`） |
-| `Sources/AgentsHUD/AgentsHUDApp.swift` | `@main` + `NSStatusItem`（左键面板 / 右键菜单）+ 状态色圆点 |
+| `Sources/AgentsHUD/AppDelegate.swift` | `NSStatusItem`（左键面板 / 右键菜单）+ 状态色圆点 |
+| `Sources/AgentsHUD/main.swift` | 纯 AppKit 入口（无 SwiftUI Scene，不弹任何窗口） |
 | `build-app.sh` / `make-dmg.sh` | 编译打包成 `.app` / 打成 DMG |
 
 > 验证用：`swift build -c release && .build/release/AgentsHUD --render-test out.png`

@@ -1,19 +1,10 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 import Combine
 
-@main
-struct AgentsHUDApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    var body: some Scene {
-        // Pure menu-bar app: the status item is managed in AppDelegate. This
-        // empty Settings scene just satisfies App's requirement for a Scene.
-        Settings { EmptyView() }
-    }
-}
-
 /// Owns the menu-bar status item: left-click toggles the panel popover,
-/// right-click (or control-click) opens a 刷新 / 退出 menu.
+/// right-click (or control-click) opens a 刷新 / 退出 menu. No SwiftUI Scene is
+/// used (see main.swift) so the app never shows a stray window.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -23,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if runRenderTestIfRequested() { return }
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.accessory) // menu-bar only: no Dock icon, no window
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
