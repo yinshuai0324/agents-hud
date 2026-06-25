@@ -15,6 +15,7 @@
 ```
 
 由两部分组成：电脑端 **server**（采集 `~/.claude` 数据并通过局域网下发）和 **Android App**（扫码连接、全屏看板）。
+另有可选的 **Mac 菜单栏 App**：同机免配对，菜单栏一个状态色圆点、点击弹出同款悬浮面板（见 [`mac/`](mac/)）。
 
 ---
 
@@ -59,6 +60,16 @@ App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动
 下次启动自动重连。面板左上角“重扫”可重新配对。**手机与电脑须在同一局域网。**
 
 看不到二维码？在电脑上运行 `agents-hud connect` 重新打印。
+
+## Mac 菜单栏 App（可选，同机）
+
+不想一直盯着手机？在装了 server 的这台 Mac 上，可再装一个**菜单栏 App**：菜单栏一个状态色圆点，
+左键点开与手机同款的毛玻璃悬浮面板、右键菜单刷新/退出。它跑在与 server 同一台机器，**无需扫码**，
+直接连本机即可。
+
+从 [GitHub Releases](https://github.com/yinshuai0324/agents-hud/releases/latest) 下载
+`agents-hud-*-mac.dmg`（通用二进制，需 macOS 13+），把 App 拖进「应用程序」即可（DMG 已 Apple 公证，
+正常双击打开）。详情与从源码构建见 [`mac/README.md`](mac/README.md)。
 
 ---
 
