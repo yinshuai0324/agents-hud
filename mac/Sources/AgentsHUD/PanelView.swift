@@ -57,18 +57,18 @@ struct PanelView: View {
     }
 
     private var connectionTag: some View {
-        let spec: (String, Color, Color)
+        let spec: (String, Color)
         switch client.connection {
-        case .connected: spec = ("已连接", CC.green, CC.greenDim)
-        case .connecting: spec = ("连接中", CC.yellow, CC.yellowDim)
-        case .disconnected: spec = ("已断开", CC.red, CC.redDim)
+        case .connected: spec = ("已连接", CC.green)
+        case .connecting: spec = ("连接中", CC.yellow)
+        case .disconnected: spec = ("已断开", CC.red)
         }
         return Text(spec.0)
             .font(.system(size: 9, weight: .semibold))
             .foregroundColor(spec.1)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
-            .background(spec.2)
+            .background(CC.chip)
             .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
@@ -85,7 +85,7 @@ struct PanelView: View {
                 Pill(
                     text: live ? "实时" : "等待上报",
                     fg: live ? CC.green : CC.textFaint,
-                    bg: live ? CC.greenDim : CC.card
+                    bg: CC.chip
                 )
             }
 

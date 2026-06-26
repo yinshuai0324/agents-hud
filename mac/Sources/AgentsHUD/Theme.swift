@@ -8,6 +8,8 @@ enum CC {
     static let bgBottom = Color(hex: 0x05070D)
     static let card = Color.white.opacity(0.10)
     static let cardBorder = Color(hex: 0x1E2636)
+    // Dark chip for status tags so bright colored text reads on the frosted glass.
+    static let chip = Color.black.opacity(0.30)
     static let red = Color(hex: 0xFF453A)       // 出错 error
     static let orange = Color(hex: 0xFF9F0A)     // 审批 notify
     static let blue = Color(hex: 0x3B9EFF)       // 等候 waiting
@@ -58,25 +60,46 @@ func nsStateColor(_ state: LightState) -> NSColor {
     }
 }
 
-/// A filled status dot for the menu bar. `color == nil` (disconnected) draws a
-/// hollow gray ring. `dim` fades it for the error/notify blink.
-func statusDotImage(color: NSColor?, dim: Bool) -> NSImage {
-    let size = NSSize(width: 16, height: 16)
-    let img = NSImage(size: size)
-    img.lockFocus()
-    let rect = NSRect(x: 4, y: 4, width: 8, height: 8)
-    if let color {
-        color.withAlphaComponent(dim ? 0.35 : 1.0).setFill()
-        NSBezierPath(ovalIn: rect).fill()
-    } else {
-        NSColor(white: 0.55, alpha: 0.6).setStroke()
-        let p = NSBezierPath(ovalIn: rect.insetBy(dx: 0.6, dy: 0.6))
-        p.lineWidth = 1.3
-        p.stroke()
+/// The menu-bar icon: a `sparkle` glyph in the menu-bar label color (auto
+/// light/dark) with a small state-color dot badged in the bottom-right corner.
+/// `dominant == nil` (disconnected) dims the sparkle and drops the dot. `dim`
+/// fades the dot for the error/notify blink. Drawn via a scale-aware handler so
+/// it stays crisp on Retina and recolors itself when the menu bar flips appearance.
+func statusBarImage(dominant: LightState?, dim: Bool) -> NSImage {
+    let size = NSSize(width: 18, height: 16)
+    let image = NSImage(size: size, flipped: false) { _ in
+        let symbolAlpha: CGFloat = dominant == nil ? 0.45 : 1.0
+        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        if let sparkle = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Agents-HUD")?
+            .withSymbolConfiguration(cfg) {
+            let s = sparkle.size
+            let r = NSRect(x: 0, y: (size.height - s.height) / 2, width: s.width, height: s.height)
+            sparkle.draw(in: r, from: .zero, operation: .sourceOver, fraction: symbolAlpha)
+            // Recolor the (template) sparkle to the menu-bar label color.
+            if let ctx = NSGraphicsContext.current {
+                ctx.compositingOperation = .sourceAtop
+                NSColor.labelColor.withAlphaComponent(symbolAlpha).setFill()
+                NSBezierPath(rect: r).fill()
+                ctx.compositingOperation = .sourceOver
+            }
+        }
+
+        if let dom = dominant {
+            let d: CGFloat = 7
+            let badge = NSRect(x: size.width - d, y: 0, width: d, height: d)
+            // Punch a transparent gap so the dot reads separately from the sparkle.
+            if let ctx = NSGraphicsContext.current {
+                ctx.compositingOperation = .clear
+                NSBezierPath(ovalIn: badge.insetBy(dx: -1.2, dy: -1.2)).fill()
+                ctx.compositingOperation = .sourceOver
+            }
+            nsStateColor(dom).withAlphaComponent(dim ? 0.4 : 1).setFill()
+            NSBezierPath(ovalIn: badge).fill()
+        }
+        return true
     }
-    img.unlockFocus()
-    img.isTemplate = false
-    return img
+    image.isTemplate = false
+    return image
 }
 
 extension Color {

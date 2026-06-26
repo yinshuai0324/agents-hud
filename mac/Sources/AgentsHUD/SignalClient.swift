@@ -62,11 +62,6 @@ final class SignalClient: ObservableObject {
         return Int(now.timeIntervalSince1970 * 2) % 2 == 0
     }
 
-    /// The current menu-bar icon image.
-    func menuBarIcon() -> NSImage {
-        statusDotImage(color: dominant.map(nsStateColor), dim: blinkDim)
-    }
-
     // MARK: Lifecycle
 
     func start() {

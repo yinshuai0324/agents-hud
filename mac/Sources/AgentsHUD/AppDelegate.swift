@@ -8,36 +8,39 @@ import Combine
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private let popover = NSPopover()
+    private var menuPanel: MenuBarPanel!
     private let client = SignalClient.shared
     private var iconObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if runRenderIconIfRequested() { return }
         if runRenderTestIfRequested() { return }
         NSApp.setActivationPolicy(.accessory) // menu-bar only: no Dock icon, no window
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
         if let button = item.button {
-            button.image = client.menuBarIcon()
             button.target = self
             button.action = #selector(statusButtonClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        updateStatusIcon()
 
-        popover.behavior = .transient
-        popover.appearance = NSAppearance(named: .darkAqua)
-        popover.contentViewController = NSHostingController(rootView: PanelView(client: client))
+        let content = PanelView(client: client)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        menuPanel = MenuBarPanel(content: content)
 
         client.start()
 
-        // Keep the menu-bar dot in sync with state changes + blink.
+        // Keep the menu-bar icon in sync with state changes + blink.
         iconObserver = client.objectWillChange.sink { [weak self] _ in
             guard let self else { return }
-            Task { @MainActor in
-                self.statusItem.button?.image = self.client.menuBarIcon()
-            }
+            Task { @MainActor in self.updateStatusIcon() }
         }
+    }
+
+    private func updateStatusIcon() {
+        statusItem.button?.image = statusBarImage(dominant: client.dominant, dim: client.blinkDim)
     }
 
     @objc private func statusButtonClicked() {
@@ -47,18 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if rightClick {
             showContextMenu()
         } else {
-            togglePopover()
-        }
-    }
-
-    private func togglePopover() {
-        guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            guard let button = statusItem.button else { return }
+            menuPanel.toggle(below: button)
         }
     }
 
