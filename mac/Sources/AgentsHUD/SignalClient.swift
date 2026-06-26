@@ -25,6 +25,10 @@ final class SignalClient: ObservableObject {
     private var epoch = 0
     private var started = false
 
+    // Per-session last-seen state, to detect transitions for notifications.
+    private var lastStates: [String: String] = [:]
+    private var hasBaseline = false
+
     // MARK: Config (read live from UserDefaults; defaults match the server)
     private var host: String { UserDefaults.standard.string(forKey: "host") ?? "127.0.0.1" }
     private var port: Int { let p = UserDefaults.standard.integer(forKey: "port"); return p == 0 ? 4317 : p }
@@ -154,16 +158,37 @@ final class SignalClient: ObservableObject {
                 if let snap = try? JSONDecoder().decode(Snapshot.self, from: data) {
                     if self.snapshot == nil { self.snapshot = snap }
                     self.connection = .connected
+                    if !self.hasBaseline {
+                        for s in snap.sessions { self.lastStates[s.id] = s.state }
+                        self.hasBaseline = true
+                    }
                 }
             }
         }.resume()
     }
 
     private func decode(_ text: String) {
-        guard let data = text.data(using: .utf8) else { return }
-        if let snap = try? JSONDecoder().decode(Snapshot.self, from: data) {
-            snapshot = snap
+        guard let data = text.data(using: .utf8),
+              let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
+        snapshot = snap
+        noteTransitions(snap)
+    }
+
+    /// Fire a notification when a session enters an attention state. The first
+    /// snapshot (or first after a fresh launch) just seeds the baseline so we
+    /// don't notify for states that were already in flight.
+    private func noteTransitions(_ snap: Snapshot) {
+        guard hasBaseline else {
+            for s in snap.sessions { lastStates[s.id] = s.state }
+            hasBaseline = true
+            return
         }
+        for s in snap.sessions where lastStates[s.id] != s.state {
+            Notifier.shared.sessionEntered(state: s.state, project: s.project, cwd: s.cwd)
+        }
+        for s in snap.sessions { lastStates[s.id] = s.state }
+        let ids = Set(snap.sessions.map(\.id))
+        lastStates = lastStates.filter { ids.contains($0.key) }
     }
 
     private func wsURL() -> URL? { buildURL(scheme: "ws", path: "/") }
