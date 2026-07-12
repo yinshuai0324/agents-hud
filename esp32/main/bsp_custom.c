@@ -10,7 +10,8 @@
 static const char *TAG = "bsp_custom";
 
 /* Strip height per flush: 30*466*2 ≈ 28KB. sw_rotate allocates a second
- * rotation buffer of the same size, so 2×28KB must fit in internal RAM. */
+ * rotation buffer of the same size; 2×37KB (40 lines) starves the BLE
+ * controller's internal RAM, so stay at 30. */
 #define DRAW_BUF_LINES 30
 
 /* CO5300 requires even-aligned flush areas. */

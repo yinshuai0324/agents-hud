@@ -159,23 +159,66 @@ static int clawd_group(void)
     return 3;
 }
 
-static void clawd_render(void)
+/*
+ * Render one claudepix frame into a scaled canvas, redrawing and
+ * invalidating only the cells that differ from `prev` (NULL = full redraw).
+ * Cuts a blink from a 460x460 repaint down to a few cells.
+ */
+static void render_cells_diff(uint16_t *buf, int cell, int w, lv_obj_t *canvas,
+                              const splash_anim_def_t *a, const uint8_t *cells,
+                              const uint8_t *prev)
 {
-    if (!s_clawd_buf || !s_clawd_row) return;
-    const splash_anim_def_t *a = &splash_anims[s_anim_idx];
-    const uint8_t *cells = a->frames[s_frame_idx];
-    for (int gy = 0; gy < CLAWD_GRID; gy++) {
-        for (int gx = 0; gx < CLAWD_GRID; gx++) {
+    int x0 = 0, y0 = 0, x1 = CLAWD_GRID - 1, y1 = CLAWD_GRID - 1;
+    if (prev) {
+        x0 = y0 = CLAWD_GRID;
+        x1 = y1 = -1;
+        for (int i = 0; i < CLAWD_GRID * CLAWD_GRID; i++) {
+            if (cells[i] != prev[i]) {
+                int gx = i % CLAWD_GRID, gy = i / CLAWD_GRID;
+                if (gx < x0) x0 = gx;
+                if (gx > x1) x1 = gx;
+                if (gy < y0) y0 = gy;
+                if (gy > y1) y1 = gy;
+            }
+        }
+        if (x1 < 0) return; /* identical frame */
+    }
+
+    for (int gy = y0; gy <= y1; gy++) {
+        for (int gx = x0; gx <= x1; gx++) {
             uint8_t code = cells[gy * CLAWD_GRID + gx];
             uint16_t color = (code < SPLASH_PALETTE_SIZE) ? a->palette[code] : 0x0000;
-            uint16_t *p = &s_clawd_row[gx * s_clawd_cell];
-            for (int i = 0; i < s_clawd_cell; i++) p[i] = color;
-        }
-        for (int dy = 0; dy < s_clawd_cell; dy++) {
-            memcpy(&s_clawd_buf[(gy * s_clawd_cell + dy) * s_clawd_w], s_clawd_row, s_clawd_w * 2);
+            for (int dy = 0; dy < cell; dy++) {
+                uint16_t *dst = &buf[(gy * cell + dy) * w + gx * cell];
+                for (int dx = 0; dx < cell; dx++) dst[dx] = color;
+            }
         }
     }
-    if (s_clawd_canvas) lv_obj_invalidate(s_clawd_canvas);
+
+    if (canvas) {
+        lv_area_t coords;
+        lv_obj_get_coords(canvas, &coords);
+        lv_area_t dirty = {
+            .x1 = coords.x1 + x0 * cell,
+            .y1 = coords.y1 + y0 * cell,
+            .x2 = coords.x1 + (x1 + 1) * cell - 1,
+            .y2 = coords.y1 + (y1 + 1) * cell - 1,
+        };
+        lv_obj_invalidate_area(canvas, &dirty);
+    }
+}
+
+/* Previous frame cell pointers (NULL = force full redraw). */
+static const uint8_t *s_clawd_prev;
+static const uint8_t *s_mini_prev;
+
+static void clawd_render(void)
+{
+    if (!s_clawd_buf) return;
+    const splash_anim_def_t *a = &splash_anims[s_anim_idx];
+    render_cells_diff(s_clawd_buf, s_clawd_cell, s_clawd_w, s_clawd_canvas,
+                      a, a->frames[s_frame_idx], s_clawd_prev);
+    s_clawd_prev = a->frames[s_frame_idx];
 }
 
 static void clawd_pick(void)
@@ -188,6 +231,7 @@ static void clawd_pick(void)
     s_frame_idx = 0;
     s_frame_ms = lv_tick_get();
     s_pick_ms = s_frame_ms;
+    s_clawd_prev = NULL; /* animation switch: full redraw */
     clawd_render();
 }
 
@@ -198,18 +242,9 @@ static void mini_render(void)
 {
     if (!s_mini_buf) return;
     const splash_anim_def_t *a = &splash_anims[s_mini_anim];
-    const uint8_t *cells = a->frames[s_mini_frame];
-    for (int gy = 0; gy < CLAWD_GRID; gy++) {
-        for (int gx = 0; gx < CLAWD_GRID; gx++) {
-            uint8_t code = cells[gy * CLAWD_GRID + gx];
-            uint16_t color = (code < SPLASH_PALETTE_SIZE) ? a->palette[code] : 0x0000;
-            for (int dy = 0; dy < MINI_CELL; dy++) {
-                uint16_t *dst = &s_mini_buf[(gy * MINI_CELL + dy) * MINI_PX + gx * MINI_CELL];
-                for (int dx = 0; dx < MINI_CELL; dx++) dst[dx] = color;
-            }
-        }
-    }
-    if (s_mini_canvas) lv_obj_invalidate(s_mini_canvas);
+    render_cells_diff(s_mini_buf, MINI_CELL, MINI_PX, s_mini_canvas,
+                      a, a->frames[s_mini_frame], s_mini_prev);
+    s_mini_prev = a->frames[s_mini_frame];
 }
 
 static void mini_pick(int group)
@@ -222,6 +257,7 @@ static void mini_pick(int group)
     s_mini_frame = 0;
     s_mini_frame_ms = lv_tick_get();
     s_mini_pick_ms = s_mini_frame_ms;
+    s_mini_prev = NULL; /* animation switch: full redraw */
     mini_render();
 }
 
@@ -238,9 +274,11 @@ static void clawd_timer_cb(lv_timer_t *t)
             mini_pick(g);
         } else {
             const splash_anim_def_t *a = &splash_anims[s_mini_anim];
-            if (a->frame_count > 0 && now - s_mini_frame_ms >= a->holds[s_mini_frame]) {
+            uint16_t hold = a->holds[s_mini_frame];
+            if (a->frame_count > 0 && now - s_mini_frame_ms >= hold) {
                 s_mini_frame = (s_mini_frame + 1) % a->frame_count;
-                s_mini_frame_ms = now;
+                s_mini_frame_ms += hold;
+                if (now - s_mini_frame_ms > hold) s_mini_frame_ms = now;
                 mini_render();
             }
         }
@@ -255,9 +293,11 @@ static void clawd_timer_cb(lv_timer_t *t)
     }
     const splash_anim_def_t *a = &splash_anims[s_anim_idx];
     if (a->frame_count == 0) return;
-    if (now - s_frame_ms >= a->holds[s_frame_idx]) {
+    uint16_t hold = a->holds[s_frame_idx];
+    if (now - s_frame_ms >= hold) {
         s_frame_idx = (s_frame_idx + 1) % a->frame_count;
-        s_frame_ms = now;
+        s_frame_ms += hold;
+        if (now - s_frame_ms > hold) s_frame_ms = now;
         clawd_render();
     }
 }
@@ -531,7 +571,7 @@ void ui_init(void)
         lv_obj_center(s_clawd_canvas);
         lv_obj_add_flag(s_clawd_canvas, LV_OBJ_FLAG_EVENT_BUBBLE);
         clawd_pick();
-        lv_timer_create(clawd_timer_cb, 40, NULL);
+        lv_timer_create(clawd_timer_cb, 20, NULL);
     }
 
     /* ---- Detail view (tap to toggle) ---- */
