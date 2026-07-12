@@ -52,7 +52,6 @@ static lv_obj_t *s_status_lbl;
 
 /* Detail view */
 static lv_obj_t *s_det_sessions;
-static lv_obj_t *s_det_host;
 static lv_obj_t *s_det_id;
 static lv_obj_t *s_det_today;
 static lv_obj_t *s_det_burn;
@@ -480,18 +479,17 @@ void ui_init(void)
     lv_obj_align(s_det_sessions, LV_ALIGN_TOP_MID, 0, 118);
     lv_label_set_text(s_det_sessions, "--");
 
-    s_det_host = make_detail_row(s_view_detail, "主机", 158);
-    s_det_today = make_detail_row(s_view_detail, "今日", 196);
-    s_det_burn = make_detail_row(s_view_detail, "速率", 234);
-    s_det_model = make_detail_row(s_view_detail, "模型", 272);
-    s_det_plan = make_detail_row(s_view_detail, "套餐", 310);
+    s_det_today = make_detail_row(s_view_detail, "今日", 168);
+    s_det_burn = make_detail_row(s_view_detail, "速率", 210);
+    s_det_model = make_detail_row(s_view_detail, "模型", 252);
+    s_det_plan = make_detail_row(s_view_detail, "套餐", 294);
 
-    s_det_id = make_detail_row(s_view_detail, "编号", 348);
+    s_det_id = make_detail_row(s_view_detail, "编号", 336);
     lv_label_set_text(s_det_id, "--");
 
     lv_obj_t *hint = make_label(s_view_detail, &font_cn_20, COL_DIM);
     lv_label_set_text(hint, "点一下返回");
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 396);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 388);
 
     lv_timer_create(word_timer_cb, 500, NULL);
     s_word_ms = lv_tick_get();
@@ -539,7 +537,6 @@ void ui_update(const ahud_snapshot_t *snap, ahud_net_state_t net)
 
         lv_label_set_text(s_det_model, snap->model[0] ? snap->model : "--");
         lv_label_set_text(s_det_plan, snap->plan[0] ? snap->plan : "--");
-        lv_label_set_text(s_det_host, snap->host[0] ? snap->host : "--");
     }
 
     refresh_status();
