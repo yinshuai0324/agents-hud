@@ -21,6 +21,8 @@ typedef struct {
     int s_error;
     int s_quiet;
     int s_total;
+    /** Hostname of the computer pushing data ("" if unknown). */
+    char host[24];
 } ahud_snapshot_t;
 
 typedef enum {

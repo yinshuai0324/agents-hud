@@ -17,6 +17,7 @@ Env:
 import asyncio
 import json
 import os
+import platform
 import sys
 import time
 import urllib.request
@@ -28,6 +29,10 @@ RX_CHAR_UUID = "41485544-6469-616c-2d64-617461000002"
 SNAPSHOT_URL = f"http://127.0.0.1:{os.environ.get('CC_SIGNAL_PORT', '4317')}/api/snapshot"
 INTERVAL_S = 3.0
 SCAN_EVERY_S = 8.0
+# The dial can reject a host (switch/lock buttons). A rejected connection is
+# torn down within seconds — back off so we don't hammer it.
+REJECT_COOLDOWN_S = 60.0
+HOSTNAME = platform.node().split(".")[0][:23] or "mac"
 
 ONLY = [s.strip().lower() for s in os.environ.get("AGENTS_HUD_BLE_ONLY", "").split(",") if s.strip()]
 
@@ -58,6 +63,7 @@ def fetch_compact() -> bytes:
         "to": st.get("total", 0),
         "m": (snap.get("model") or "")[:24],
         "pl": (snap.get("plan") or "")[:24],
+        "h": HOSTNAME,
     }
     if isinstance(u7, dict):
         payload["p7"] = u7.get("percent", 0)
@@ -76,8 +82,9 @@ def is_dial(device, ad) -> bool:
     return True
 
 
-async def serve_dial(device, connected: set) -> None:
+async def serve_dial(device, connected: set, cooldown: dict) -> None:
     label = f"{device.name or 'AgentsHUD'} [{device.address}]"
+    started_at = time.monotonic()
     try:
         async with BleakClient(device) as client:
             log(f"connected: {label}")
@@ -95,19 +102,27 @@ async def serve_dial(device, connected: set) -> None:
         log(f"{label}: {e}")
     finally:
         connected.discard(device.address)
-        log(f"disconnected: {label}")
+        if time.monotonic() - started_at < 10:
+            cooldown[device.address] = time.monotonic() + REJECT_COOLDOWN_S
+            log(f"disconnected fast (rejected by dial?): {label} — cooling down {int(REJECT_COOLDOWN_S)}s")
+        else:
+            log(f"disconnected: {label}")
 
 
 async def main() -> None:
-    log("AgentsHUD BLE daemon starting" + (f" (filter: {','.join(ONLY)})" if ONLY else ""))
+    log(f"AgentsHUD BLE daemon starting as \"{HOSTNAME}\"" + (f" (filter: {','.join(ONLY)})" if ONLY else ""))
     connected: set = set()
+    cooldown: dict = {}
     while True:
         try:
             found = await BleakScanner.discover(timeout=5, return_adv=True)
+            now = time.monotonic()
             for device, ad in found.values():
-                if device.address not in connected and is_dial(device, ad):
+                if device.address in connected or cooldown.get(device.address, 0) > now:
+                    continue
+                if is_dial(device, ad):
                     connected.add(device.address)
-                    asyncio.create_task(serve_dial(device, connected))
+                    asyncio.create_task(serve_dial(device, connected, cooldown))
         except Exception as e:
             log(f"scan error: {e}")
         await asyncio.sleep(SCAN_EVERY_S)

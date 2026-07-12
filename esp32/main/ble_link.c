@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "cJSON.h"
+#include "nvs.h"
 
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -36,6 +37,82 @@ static ahud_update_cb_t s_on_update;
 static volatile bool s_connected;
 static volatile uint32_t s_last_data_tick;
 static uint8_t s_own_addr_type;
+static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+
+/* Host selection: the dial decides which computer it accepts.
+ *  - s_cur_host:    hostname from the latest payload
+ *  - s_locked_host: only this host is accepted (persisted in NVS; "" = any)
+ *  - s_block_host:  temporarily rejected host (the "switch computer" button) */
+static char s_cur_host[24];
+static char s_locked_host[24];
+static char s_block_host[24];
+static uint32_t s_block_until_tick;
+
+#define BLOCK_MS 120000
+
+static void locked_host_save(const char *host)
+{
+    nvs_handle_t h;
+    if (nvs_open("ahud", NVS_READWRITE, &h) != ESP_OK) return;
+    if (host && host[0]) nvs_set_str(h, "lockhost", host);
+    else nvs_erase_key(h, "lockhost");
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+static void locked_host_load(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("ahud", NVS_READONLY, &h) != ESP_OK) return;
+    size_t len = sizeof(s_locked_host);
+    if (nvs_get_str(h, "lockhost", s_locked_host, &len) != ESP_OK) {
+        s_locked_host[0] = '\0';
+    }
+    nvs_close(h);
+}
+
+/** True if this host must be rejected right now. */
+static bool host_rejected(const char *host)
+{
+    if (!host[0]) return false;
+    if (s_locked_host[0] && strcmp(host, s_locked_host) != 0) return true;
+    if (s_block_host[0] && strcmp(host, s_block_host) == 0) {
+        if ((int32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS - s_block_until_tick) < 0) {
+            return true;
+        }
+        s_block_host[0] = '\0'; /* block expired */
+    }
+    return false;
+}
+
+void net_switch_host(void)
+{
+    if (!s_cur_host[0]) return;
+    strlcpy(s_block_host, s_cur_host, sizeof(s_block_host));
+    s_block_until_tick = xTaskGetTickCount() * portTICK_PERIOD_MS + BLOCK_MS;
+    ESP_LOGW(TAG, "switch host: blocking \"%s\" for %ds", s_block_host, BLOCK_MS / 1000);
+    if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    }
+}
+
+bool net_host_locked(void)
+{
+    return s_locked_host[0] != '\0';
+}
+
+void net_host_lock_toggle(void)
+{
+    if (s_locked_host[0]) {
+        s_locked_host[0] = '\0';
+        locked_host_save(NULL);
+        ESP_LOGI(TAG, "host unlocked");
+    } else if (s_cur_host[0]) {
+        strlcpy(s_locked_host, s_cur_host, sizeof(s_locked_host));
+        locked_host_save(s_locked_host);
+        ESP_LOGI(TAG, "locked to host \"%s\"", s_locked_host);
+    }
+}
 
 static long long json_ll(const cJSON *o, const char *k)
 {
@@ -74,6 +151,7 @@ static bool parse_payload(const char *body, ahud_snapshot_t *out)
     out->s_total = (int)json_ll(root, "to");
     json_str(root, "m", out->model, sizeof(out->model));
     json_str(root, "pl", out->plan, sizeof(out->plan));
+    json_str(root, "h", out->host, sizeof(out->host));
     cJSON_Delete(root);
     return true;
 }
@@ -92,9 +170,16 @@ static int rx_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 
     ahud_snapshot_t snap;
     if (parse_payload(buf, &snap)) {
+        if (host_rejected(snap.host)) {
+            ESP_LOGW(TAG, "rejecting host \"%s\" (%s)", snap.host,
+                     s_locked_host[0] ? "locked to another" : "switched away");
+            ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+            return 0;
+        }
+        strlcpy(s_cur_host, snap.host, sizeof(s_cur_host));
         s_last_data_tick = xTaskGetTickCount();
-        ESP_LOGI(TAG, "data ok: 5h=%d%% 7d=%d%% sessions=%d len=%u",
-                 snap.u5h_percent, snap.u7d_percent, snap.s_total, len);
+        ESP_LOGI(TAG, "data ok: 5h=%d%% 7d=%d%% sessions=%d host=%s len=%u",
+                 snap.u5h_percent, snap.u7d_percent, snap.s_total, snap.host, len);
         s_on_update(&snap, AHUD_NET_OK);
     } else {
         ESP_LOGW(TAG, "bad payload (%u bytes)", len);
@@ -127,6 +212,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0) {
             ESP_LOGI(TAG, "host connected");
             s_connected = true;
+            s_conn_handle = event->connect.conn_handle;
         } else {
             start_advertising();
         }
@@ -134,6 +220,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGW(TAG, "host disconnected (reason %d)", event->disconnect.reason);
         s_connected = false;
+        s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        s_cur_host[0] = '\0';
         start_advertising();
         break;
     default:
@@ -217,6 +305,8 @@ void net_start(ahud_update_cb_t on_update)
 {
     s_on_update = on_update;
     s_last_data_tick = xTaskGetTickCount();
+    locked_host_load();
+    if (s_locked_host[0]) ESP_LOGI(TAG, "locked to host \"%s\"", s_locked_host);
 
     ESP_ERROR_CHECK(nimble_port_init());
 
