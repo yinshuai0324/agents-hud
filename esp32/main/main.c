@@ -16,6 +16,7 @@
 #include "bsp/display.h"
 
 #include "bsp_custom.h"
+#include "idle.h"
 #include "net.h"
 #include "ui.h"
 
@@ -50,6 +51,9 @@ static void console_task(void *arg)
                 ESP_LOGW(TAG, "rebooting");
                 vTaskDelay(pdMS_TO_TICKS(100));
                 esp_restart();
+            } else if (c == 'z') {
+                ESP_LOGW(TAG, "forcing idle sleep");
+                idle_force_sleep();
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -86,6 +90,11 @@ static void button_task(void *arg)
     while (true) {
         int v = gpio_get_level(GPIO_NUM_0);
         if (last == 1 && v == 0) { /* falling edge = press */
+            if (idle_consume_wake()) { /* asleep: press only wakes */
+                vTaskDelay(pdMS_TO_TICKS(300));
+                last = 0;
+                continue;
+            }
             rot = (rot + 1) % 4;
             ESP_LOGI(TAG, "rotate display -> %d deg", rot * 90);
             bsp_display_lock(0);

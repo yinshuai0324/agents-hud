@@ -7,6 +7,7 @@
 #include "esp_heap_caps.h"
 #include "logo.h"
 #include "net.h"
+#include "idle.h"
 #include "splash_animations.h"
 
 LV_FONT_DECLARE(font_cn_20);
@@ -307,6 +308,7 @@ static void clawd_timer_cb(lv_timer_t *t)
 static void view_toggle_cb(lv_event_t *e)
 {
     (void)e;
+    if (idle_consume_wake()) return; /* this touch only wakes the panel */
     /* Cycle: usage -> clawd -> detail -> usage */
     if (!lv_obj_has_flag(s_view_usage, LV_OBJ_FLAG_HIDDEN)) {
         lv_obj_add_flag(s_view_usage, LV_OBJ_FLAG_HIDDEN);
@@ -628,6 +630,9 @@ void ui_update(const ahud_snapshot_t *snap, ahud_net_state_t net)
     if (snap) {
         s_last = *snap;
         s_have_data = true;
+        if (snap->s_working + snap->s_notify + snap->s_error > 0) {
+            idle_note_activity(); /* attention-worthy state keeps the panel on */
+        }
         char tok[16], buf[64];
 
         update_card(&s_card_5h, snap->u5h_percent, snap->u5h_reset_min, true);
