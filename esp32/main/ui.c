@@ -45,7 +45,7 @@ static lv_obj_t *s_status_lbl;
 /* Detail view */
 static lv_obj_t *s_det_sessions;
 static lv_obj_t *s_det_host;
-static lv_obj_t *s_lock_lbl;
+static lv_obj_t *s_det_id;
 static lv_obj_t *s_det_today;
 static lv_obj_t *s_det_burn;
 static lv_obj_t *s_det_model;
@@ -297,28 +297,23 @@ static lv_obj_t *make_detail_row(lv_obj_t *parent, const char *name, int y)
     return v;
 }
 
-static void switch_host_cb(lv_event_t *e)
-{
-    (void)e;
-    net_switch_host();
-}
-
-static void lock_host_cb(lv_event_t *e)
-{
-    (void)e;
-    net_host_lock_toggle();
-    lv_label_set_text(s_lock_lbl, net_host_locked() ? "已锁定" : "锁定");
-}
-
 static void refresh_status(void)
 {
     bool spin = false;
     char buf[48];
     lv_color_t color = COL_DIM;
 
+    if (net_device_id()[0]) {
+        lv_label_set_text(s_det_id, net_device_id());
+    }
+
     switch (s_net) {
     case AHUD_NET_WIFI_CONNECTING:
-        snprintf(buf, sizeof(buf), "等待蓝牙连接…");
+        if (net_device_id()[0]) {
+            snprintf(buf, sizeof(buf), "等待蓝牙连接 · %s", net_device_id());
+        } else {
+            snprintf(buf, sizeof(buf), "等待蓝牙连接…");
+        }
         color = COL_ACCENT;
         break;
     case AHUD_NET_SERVER_UNREACHABLE:
@@ -453,40 +448,12 @@ void ui_init(void)
     s_det_model = make_detail_row(s_view_detail, "模型", 272);
     s_det_plan = make_detail_row(s_view_detail, "套餐", 310);
 
-    /* Host-selection buttons: clicks stay on the button (no view cycle). */
-    lv_obj_t *btns = lv_obj_create(s_view_detail);
-    lv_obj_remove_style_all(btns);
-    lv_obj_set_size(btns, LV_SIZE_CONTENT, 44);
-    lv_obj_align(btns, LV_ALIGN_TOP_MID, 0, 352);
-    lv_obj_set_flex_flow(btns, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(btns, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(btns, 16, 0);
-
-    lv_obj_t *b_switch = lv_button_create(btns);
-    lv_obj_set_style_bg_color(b_switch, COL_BAR_BG, 0);
-    lv_obj_set_style_radius(b_switch, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_pad_hor(b_switch, 18, 0);
-    lv_obj_set_style_pad_ver(b_switch, 8, 0);
-    lv_obj_t *sl = lv_label_create(b_switch);
-    lv_obj_set_style_text_font(sl, &font_cn_20, 0);
-    lv_obj_set_style_text_color(sl, COL_TEXT, 0);
-    lv_label_set_text(sl, "换电脑");
-    lv_obj_add_event_cb(b_switch, switch_host_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *b_lock = lv_button_create(btns);
-    lv_obj_set_style_bg_color(b_lock, COL_BAR_BG, 0);
-    lv_obj_set_style_radius(b_lock, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_pad_hor(b_lock, 18, 0);
-    lv_obj_set_style_pad_ver(b_lock, 8, 0);
-    s_lock_lbl = lv_label_create(b_lock);
-    lv_obj_set_style_text_font(s_lock_lbl, &font_cn_20, 0);
-    lv_obj_set_style_text_color(s_lock_lbl, COL_TEXT, 0);
-    lv_label_set_text(s_lock_lbl, net_host_locked() ? "已锁定" : "锁定");
-    lv_obj_add_event_cb(b_lock, lock_host_cb, LV_EVENT_CLICKED, NULL);
+    s_det_id = make_detail_row(s_view_detail, "编号", 348);
+    lv_label_set_text(s_det_id, "--");
 
     lv_obj_t *hint = make_label(s_view_detail, &font_cn_20, COL_DIM);
-    lv_label_set_text(hint, "点空白处返回");
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 404);
+    lv_label_set_text(hint, "点一下返回");
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 396);
 
     lv_timer_create(word_timer_cb, 500, NULL);
     s_word_ms = lv_tick_get();

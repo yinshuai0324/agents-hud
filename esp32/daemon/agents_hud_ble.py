@@ -7,10 +7,16 @@ GATT. Dials advertise as "AgentsHUD-XXXX" (XXXX = per-device MAC suffix)
 with the service UUID below; the daemon keeps one connection per dial and
 auto-reconnects whenever a dial or the server goes away.
 
+Target selection (`agents-hud ble connect <ID>`): the CLI writes the dial ID
+to ~/.claude/agents-hud-ble.target; this daemon re-reads it before every scan
+round and drops connections that no longer match — no restart needed. An
+empty/absent file (or "all") means "connect every dial in range".
+
+Usage: agents_hud_ble.py [--scan]   (--scan: list dials for 8s and exit)
+
 Env:
-  AGENTS_HUD_BLE_ONLY  optional comma list; only connect to dials whose
-                       name or address contains one of these substrings,
-                       e.g. "F232" or "AgentsHUD-F232,AgentsHUD-A01C".
+  AGENTS_HUD_BLE_ONLY  optional comma list, same filtering as the target
+                       file but fixed at startup (mainly for manual runs).
   CC_SIGNAL_PORT       AgentsHUD server port (default 4317).
 """
 
@@ -35,6 +41,19 @@ REJECT_COOLDOWN_S = 60.0
 HOSTNAME = platform.node().split(".")[0][:23] or "mac"
 
 ONLY = [s.strip().lower() for s in os.environ.get("AGENTS_HUD_BLE_ONLY", "").split(",") if s.strip()]
+TARGET_FILE = os.path.expanduser("~/.claude/agents-hud-ble.target")
+
+
+def read_targets() -> list:
+    """Current target filter: CLI target file + ONLY env, lowercased."""
+    targets = list(ONLY)
+    try:
+        raw = open(TARGET_FILE).read().strip().lower()
+        if raw and raw != "all":
+            targets += [t.strip() for t in raw.split(",") if t.strip()]
+    except OSError:
+        pass
+    return targets
 
 
 def log(msg: str) -> None:
@@ -73,13 +92,15 @@ def fetch_compact() -> bytes:
 
 def is_dial(device, ad) -> bool:
     uuids = [u.lower() for u in (ad.service_uuids or [])]
-    named = (device.name or "").startswith("AgentsHUD")
-    if not (SERVICE_UUID in uuids or named):
-        return False
-    if ONLY:
-        ident = f"{device.name or ''} {device.address}".lower()
-        return any(want in ident for want in ONLY)
-    return True
+    named = (device.name or ad.local_name or "").startswith("AgentsHUD")
+    return SERVICE_UUID in uuids or named
+
+
+def matches_target(device, targets: list) -> bool:
+    if not targets:
+        return True
+    ident = f"{device.name or ''} {device.address}".lower()
+    return any(want in ident for want in targets)
 
 
 async def serve_dial(device, connected: set, cooldown: dict) -> None:
@@ -89,6 +110,9 @@ async def serve_dial(device, connected: set, cooldown: dict) -> None:
         async with BleakClient(device) as client:
             log(f"connected: {label}")
             while client.is_connected:
+                if not matches_target(device, read_targets()):
+                    log(f"target changed, releasing {label}")
+                    break
                 started = time.monotonic()
                 try:
                     data = fetch_compact()
@@ -117,10 +141,11 @@ async def main() -> None:
         try:
             found = await BleakScanner.discover(timeout=5, return_adv=True)
             now = time.monotonic()
+            targets = read_targets()
             for device, ad in found.values():
                 if device.address in connected or cooldown.get(device.address, 0) > now:
                     continue
-                if is_dial(device, ad):
+                if is_dial(device, ad) and matches_target(device, targets):
                     connected.add(device.address)
                     asyncio.create_task(serve_dial(device, connected, cooldown))
         except Exception as e:
@@ -128,8 +153,23 @@ async def main() -> None:
         await asyncio.sleep(SCAN_EVERY_S)
 
 
+async def scan_once() -> None:
+    found = await BleakScanner.discover(timeout=8, return_adv=True)
+    dials = []
+    for device, ad in found.values():
+        if is_dial(device, ad):
+            name = device.name or ad.local_name or "AgentsHUD"
+            dial_id = name.split("-")[-1] if "-" in name else "?"
+            dials.append((dial_id, name, device.address, ad.rssi))
+    if not dials:
+        print("(未发现屏幕)")
+        return
+    for dial_id, name, addr, rssi in sorted(dials):
+        print(f"{dial_id}\t{name}\trssi={rssi}\t{addr}")
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(scan_once() if "--scan" in sys.argv else main())
     except KeyboardInterrupt:
         sys.exit(0)

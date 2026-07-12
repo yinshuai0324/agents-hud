@@ -6,7 +6,7 @@ import { ClaudeProvider } from "./providers/claude.js";
 import { StateEngine } from "./state.js";
 import { createServer } from "./server.js";
 import { buildPairing, printPairingQr } from "./qr.js";
-import { bleEnabled, bleSetEnabled, bleStart, bleStop } from "./ble.js";
+import { bleEnabled, bleSetEnabled, bleStart, bleStop, bleScan, bleTarget, bleSetTarget } from "./ble.js";
 
 const SERVICE = "agents-hud";
 
@@ -134,7 +134,9 @@ function help(): void {
   update           拉取最新版本并升级（有更新才重启）
   connect          显示配对二维码与连接信息（手机 App 扫码）
   ble on|off       开/关 ESP32 圆屏的蓝牙推送（改动后自动重启服务）
-  ble status       查看蓝牙推送开关状态
+  ble status       查看蓝牙推送开关与目标
+  ble list         扫描并列出附近的屏幕（编号见屏幕详情页）
+  ble connect <编号> 只连接指定编号的屏幕（如 F232；"all" 恢复全部，秒级生效）
   setup-hooks      安装 Claude Code hooks + statusLine（状态/用量更准更实时）
   uninstall-hooks  移除上面安装的 hooks
   serve            在前台运行服务（默认；launchd 调用此项）
@@ -175,8 +177,21 @@ switch (cmd) {
       bleSetEnabled(sub === "on");
       console.log(`蓝牙推送已${sub === "on" ? "开启" : "关闭"}，重启服务生效…`);
       process.exit(brewService("restart"));
+    } else if (sub === "list" || sub === "scan") {
+      process.exit(bleScan());
+    } else if (sub === "connect") {
+      const target = process.argv[4] ?? "";
+      if (!target) {
+        console.error("用法: agents-hud ble connect <编号|all>（编号见屏幕详情页，如 F232）");
+        process.exit(1);
+      }
+      bleSetTarget(target);
+      console.log(target.toLowerCase() === "all"
+        ? "已恢复连接全部屏幕（几秒内生效）"
+        : `已设定只连接 ${target}（几秒内生效，无需重启）`);
+      process.exit(0);
     } else {
-      console.log(`蓝牙推送: ${bleEnabled() ? "开启" : "关闭"}`);
+      console.log(`蓝牙推送: ${bleEnabled() ? "开启" : "关闭"} · 目标: ${bleTarget()}`);
       process.exit(0);
     }
     break;

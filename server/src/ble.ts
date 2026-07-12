@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +13,42 @@ import { fileURLToPath } from "node:url";
 /** Marker file: presence = BLE push enabled. */
 export function bleMarkerPath(): string {
   return path.join(os.homedir(), ".claude", "agents-hud-ble.on");
+}
+
+/** Target file: dial ID(s) to connect to; absent/"all" = every dial. */
+export function bleTargetPath(): string {
+  return path.join(os.homedir(), ".claude", "agents-hud-ble.target");
+}
+
+export function bleTarget(): string {
+  try {
+    return fs.readFileSync(bleTargetPath(), "utf8").trim() || "all";
+  } catch {
+    return "all";
+  }
+}
+
+/** Set the connect target ("all" clears). Picked up by the daemon within seconds. */
+export function bleSetTarget(target: string): void {
+  const t = target.trim();
+  if (!t || t.toLowerCase() === "all") {
+    fs.rmSync(bleTargetPath(), { force: true });
+  } else {
+    fs.mkdirSync(path.dirname(bleTargetPath()), { recursive: true });
+    fs.writeFileSync(bleTargetPath(), t);
+  }
+}
+
+/** Scan for dials (blocking, ~8s) and print them. */
+export function bleScan(): number {
+  const paths = daemonPaths();
+  if (!paths) {
+    console.error("BLE 运行环境缺失（重装 agents-hud？）");
+    return 1;
+  }
+  console.log("正在扫描附近的屏幕（约 8 秒）…");
+  const r = spawnSync(paths.py, [paths.script, "--scan"], { stdio: "inherit" });
+  return r.status ?? 1;
 }
 
 export function bleEnabled(): boolean {

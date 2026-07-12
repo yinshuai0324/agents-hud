@@ -9,11 +9,5 @@
  */
 void net_start(ahud_update_cb_t on_update);
 
-/** Drop the current host and block it briefly so another one can connect. */
-void net_switch_host(void);
-
-/** Whether the dial is locked to one host (persisted in NVS). */
-bool net_host_locked(void);
-
-/** Lock to the currently connected host, or unlock if already locked. */
-void net_host_lock_toggle(void);
+/** BT MAC suffix shown on the dial, e.g. "F232" ("" until BLE is up). */
+const char *net_device_id(void);
