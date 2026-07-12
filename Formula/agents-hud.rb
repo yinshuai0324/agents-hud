@@ -22,9 +22,18 @@ class AgentsHud < Formula
       libexec.install "dist", "node_modules", "package.json", "hooks"
     end
 
+    # BLE pusher for the ESP32 AMOLED dial (runtime-optional, toggled with
+    # `agents-hud ble on`). Python venv + bleak live inside libexec.
+    (libexec/"ble").install "esp32/daemon/agents_hud_ble.py"
+    system "python3", "-m", "venv", libexec/"ble/venv"
+    system libexec/"ble/venv/bin/pip", "install", "--quiet", "--upgrade", "pip"
+    system libexec/"ble/venv/bin/pip", "install", "--quiet", "bleak"
+
     # Launcher that runs the compiled server with the installed Homebrew node.
     (bin/"agents-hud").write <<~SH
       #!/bin/bash
+      export AGENTS_HUD_BLE_PY="#{libexec}/ble/venv/bin/python"
+      export AGENTS_HUD_BLE_SCRIPT="#{libexec}/ble/agents_hud_ble.py"
       exec "#{Formula["node"].opt_bin}/node" "#{libexec}/dist/index.js" "$@"
     SH
   end

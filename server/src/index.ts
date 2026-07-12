@@ -6,6 +6,7 @@ import { ClaudeProvider } from "./providers/claude.js";
 import { StateEngine } from "./state.js";
 import { createServer } from "./server.js";
 import { buildPairing, printPairingQr } from "./qr.js";
+import { bleEnabled, bleSetEnabled, bleStart, bleStop } from "./ble.js";
 
 const SERVICE = "agents-hud";
 
@@ -31,9 +32,11 @@ async function serve(): Promise<void> {
     console.log(`   Watching    ${cfg.projectsDir}`);
     console.log(`   5H budget   ${cfg.tokenBudget.toLocaleString()} tokens (basis: ${cfg.percentBasis})`);
     console.log("\n   Tip: run `npm run setup-hooks` once for accurate live status.\n");
+    bleStart();
   });
 
   const shutdown = () => {
+    bleStop();
     engine.stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 500);
@@ -130,6 +133,8 @@ function help(): void {
   status           查看服务状态
   update           拉取最新版本并升级（有更新才重启）
   connect          显示配对二维码与连接信息（手机 App 扫码）
+  ble on|off       开/关 ESP32 圆屏的蓝牙推送（改动后自动重启服务）
+  ble status       查看蓝牙推送开关状态
   setup-hooks      安装 Claude Code hooks + statusLine（状态/用量更准更实时）
   uninstall-hooks  移除上面安装的 hooks
   serve            在前台运行服务（默认；launchd 调用此项）
@@ -164,6 +169,18 @@ switch (cmd) {
   case "upgrade":
     process.exit(update());
     break;
+  case "ble": {
+    const sub = (process.argv[3] ?? "status").toLowerCase();
+    if (sub === "on" || sub === "off") {
+      bleSetEnabled(sub === "on");
+      console.log(`蓝牙推送已${sub === "on" ? "开启" : "关闭"}，重启服务生效…`);
+      process.exit(brewService("restart"));
+    } else {
+      console.log(`蓝牙推送: ${bleEnabled() ? "开启" : "关闭"}`);
+      process.exit(0);
+    }
+    break;
+  }
   case "setup-hooks":
   case "hooks":
     process.exit(setupHooks(false));

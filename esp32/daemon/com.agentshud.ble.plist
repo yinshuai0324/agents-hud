@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.agentshud.ble</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/yinshuai/developer/project/agents-status/esp32/daemon/.venv/bin/python</string>
+        <string>/Users/yinshuai/developer/project/agents-status/esp32/daemon/agents_hud_ble.py</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/agents-hud-ble.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/agents-hud-ble.log</string>
+</dict>
+</plist>
