@@ -85,6 +85,7 @@ static bool parse_payload(const char *body, ahud_snapshot_t *out)
     json_str(root, "m", out->model, sizeof(out->model));
     json_str(root, "pl", out->plan, sizeof(out->plan));
     json_str(root, "h", out->host, sizeof(out->host));
+    json_str(root, "d", out->dominant, sizeof(out->dominant));
     cJSON_Delete(root);
     return true;
 }

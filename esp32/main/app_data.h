@@ -23,6 +23,8 @@ typedef struct {
     int s_total;
     /** Hostname of the computer pushing data ("" if unknown). */
     char host[24];
+    /** Dominant session state: working/waiting/notify/error/quiet ("" unknown). */
+    char dominant[12];
 } ahud_snapshot_t;
 
 typedef enum {

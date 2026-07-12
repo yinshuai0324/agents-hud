@@ -80,6 +80,7 @@ def fetch_compact() -> bytes:
         "e": st.get("error", 0),
         "q": st.get("quiet", 0),
         "to": st.get("total", 0),
+        "d": st.get("dominant", ""),
         "m": (snap.get("model") or "")[:24],
         "pl": (snap.get("plan") or "")[:24],
         "h": HOSTNAME,

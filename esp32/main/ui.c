@@ -24,6 +24,13 @@ LV_FONT_DECLARE(font_cn_20);
 #define CARD_W 340
 #define CARD_H 116
 
+/* 红绿灯 state colors — keep in sync with android CCColors. */
+#define COL_ST_ERROR   lv_color_hex(0xFF453A)
+#define COL_ST_NOTIFY  lv_color_hex(0xFF9F0A)
+#define COL_ST_WAITING lv_color_hex(0x3B9EFF)
+#define COL_ST_WORKING lv_color_hex(0xFFC42E)
+#define COL_ST_QUIET   lv_color_hex(0x34C759)
+
 typedef struct {
     lv_obj_t *card;
     lv_obj_t *pct;
@@ -32,6 +39,7 @@ typedef struct {
 } usage_card_t;
 
 static lv_obj_t *s_view_usage;
+static lv_obj_t *s_state_ring;
 static lv_obj_t *s_view_clawd;
 static lv_obj_t *s_view_detail;
 static lv_obj_t *s_logo;
@@ -297,6 +305,24 @@ static lv_obj_t *make_detail_row(lv_obj_t *parent, const char *name, int y)
     return v;
 }
 
+static lv_color_t dominant_color(const char *state)
+{
+    if (strcmp(state, "error") == 0) return COL_ST_ERROR;
+    if (strcmp(state, "notify") == 0) return COL_ST_NOTIFY;
+    if (strcmp(state, "waiting") == 0) return COL_ST_WAITING;
+    if (strcmp(state, "working") == 0) return COL_ST_WORKING;
+    if (strcmp(state, "quiet") == 0) return COL_ST_QUIET;
+    return COL_BAR_BG;
+}
+
+static void refresh_ring(void)
+{
+    lv_color_t c = (s_net == AHUD_NET_OK && s_have_data)
+        ? dominant_color(s_last.dominant)
+        : COL_BAR_BG; /* offline/waiting: dim neutral ring */
+    lv_obj_set_style_border_color(s_state_ring, c, 0);
+}
+
 static void refresh_status(void)
 {
     bool spin = false;
@@ -340,6 +366,7 @@ static void refresh_status(void)
         break;
     }
 
+    refresh_ring();
     lv_label_set_text(s_status_lbl, buf);
     lv_obj_set_style_text_color(s_status_lbl, color, 0);
     if (spin) {
@@ -373,6 +400,17 @@ void ui_init(void)
 
     /* ---- Usage view (default) ---- */
     s_view_usage = make_view(scr);
+
+    /* Outermost ring: dominant session state color (the traffic light). */
+    s_state_ring = lv_obj_create(s_view_usage);
+    lv_obj_remove_style_all(s_state_ring);
+    lv_obj_set_size(s_state_ring, 466, 466);
+    lv_obj_center(s_state_ring);
+    lv_obj_set_style_radius(s_state_ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(s_state_ring, 10, 0);
+    lv_obj_set_style_border_color(s_state_ring, COL_BAR_BG, 0);
+    lv_obj_set_style_border_opa(s_state_ring, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_state_ring, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     s_logo_dsc.header.w = LOGO_WIDTH;
     s_logo_dsc.header.h = LOGO_HEIGHT;
