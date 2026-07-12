@@ -16,7 +16,10 @@
 
 static const char *TAG = "ahud_ble";
 
-#define DEVICE_NAME "AgentsHUD"
+/* Base name; the advertised name gets a per-device MAC suffix so multiple
+ * dials are distinguishable, e.g. "AgentsHUD-F232". */
+#define DEVICE_NAME_BASE "AgentsHUD"
+static char s_device_name[24] = DEVICE_NAME_BASE;
 /* Data considered stale when no write arrives for this long. */
 #define STALE_MS 12000
 
@@ -148,8 +151,8 @@ static void start_advertising(void)
 
     struct ble_hs_adv_fields adv = {0};
     adv.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    adv.name = (const uint8_t *)DEVICE_NAME;
-    adv.name_len = strlen(DEVICE_NAME);
+    adv.name = (const uint8_t *)s_device_name;
+    adv.name_len = strlen(s_device_name);
     adv.name_is_complete = 1;
     ble_gap_adv_set_fields(&adv);
 
@@ -165,7 +168,7 @@ static void start_advertising(void)
     if (rc != 0 && rc != BLE_HS_EALREADY) {
         ESP_LOGE(TAG, "adv start failed: %d", rc);
     } else {
-        ESP_LOGI(TAG, "advertising as \"%s\"", DEVICE_NAME);
+        ESP_LOGI(TAG, "advertising as \"%s\"", s_device_name);
     }
 }
 
@@ -173,6 +176,13 @@ static void on_sync(void)
 {
     ble_hs_util_ensure_addr(0);
     ble_hs_id_infer_auto(0, &s_own_addr_type);
+
+    uint8_t addr[6] = {0};
+    if (ble_hs_id_copy_addr(s_own_addr_type, addr, NULL) == 0) {
+        snprintf(s_device_name, sizeof(s_device_name), "%s-%02X%02X",
+                 DEVICE_NAME_BASE, addr[1], addr[0]);
+        ble_svc_gap_device_name_set(s_device_name);
+    }
     start_advertising();
 }
 
@@ -217,7 +227,7 @@ void net_start(ahud_update_cb_t on_update)
     ble_svc_gatt_init();
     ESP_ERROR_CHECK(ble_gatts_count_cfg(GATT_SVCS));
     ESP_ERROR_CHECK(ble_gatts_add_svcs(GATT_SVCS));
-    ble_svc_gap_device_name_set(DEVICE_NAME);
+    ble_svc_gap_device_name_set(DEVICE_NAME_BASE);
 
     nimble_port_freertos_init(host_task);
     xTaskCreate(status_task, "ahud_status", 4096, NULL, 4, NULL);

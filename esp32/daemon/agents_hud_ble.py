@@ -2,9 +2,16 @@
 """AgentsHUD BLE daemon.
 
 Polls the local AgentsHUD server (http://127.0.0.1:4317/api/snapshot) and
-pushes a compact JSON payload to the ESP32 AMOLED dial over BLE GATT.
-The dial advertises as "AgentsHUD" with the service UUID below; the daemon
-auto-reconnects whenever the dial or the server goes away.
+pushes a compact JSON payload to every ESP32 AMOLED dial in range over BLE
+GATT. Dials advertise as "AgentsHUD-XXXX" (XXXX = per-device MAC suffix)
+with the service UUID below; the daemon keeps one connection per dial and
+auto-reconnects whenever a dial or the server goes away.
+
+Env:
+  AGENTS_HUD_BLE_ONLY  optional comma list; only connect to dials whose
+                       name or address contains one of these substrings,
+                       e.g. "F232" or "AgentsHUD-F232,AgentsHUD-A01C".
+  CC_SIGNAL_PORT       AgentsHUD server port (default 4317).
 """
 
 import asyncio
@@ -20,6 +27,9 @@ SERVICE_UUID = "41485544-6469-616c-2d64-617461000001"
 RX_CHAR_UUID = "41485544-6469-616c-2d64-617461000002"
 SNAPSHOT_URL = f"http://127.0.0.1:{os.environ.get('CC_SIGNAL_PORT', '4317')}/api/snapshot"
 INTERVAL_S = 3.0
+SCAN_EVERY_S = 8.0
+
+ONLY = [s.strip().lower() for s in os.environ.get("AGENTS_HUD_BLE_ONLY", "").split(",") if s.strip()]
 
 
 def log(msg: str) -> None:
@@ -57,39 +67,50 @@ def fetch_compact() -> bytes:
 
 def is_dial(device, ad) -> bool:
     uuids = [u.lower() for u in (ad.service_uuids or [])]
-    return SERVICE_UUID in uuids or (device.name or "") == "AgentsHUD"
+    named = (device.name or "").startswith("AgentsHUD")
+    if not (SERVICE_UUID in uuids or named):
+        return False
+    if ONLY:
+        ident = f"{device.name or ''} {device.address}".lower()
+        return any(want in ident for want in ONLY)
+    return True
 
 
-async def run_connection() -> None:
-    dev = await BleakScanner.find_device_by_filter(is_dial, timeout=15)
-    if dev is None:
-        log("dial not found (is it powered on?)")
-        return
-    log(f"connecting to {dev.name or dev.address}")
-    async with BleakClient(dev) as client:
-        log("connected, streaming snapshots")
-        while client.is_connected:
-            started = time.monotonic()
-            try:
-                data = fetch_compact()
-            except Exception as e:
-                log(f"snapshot fetch failed: {e}")
-                await asyncio.sleep(INTERVAL_S)
-                continue
-            await client.write_gatt_char(RX_CHAR_UUID, data, response=True)
-            elapsed = time.monotonic() - started
-            await asyncio.sleep(max(0.5, INTERVAL_S - elapsed))
-    log("disconnected")
+async def serve_dial(device, connected: set) -> None:
+    label = f"{device.name or 'AgentsHUD'} [{device.address}]"
+    try:
+        async with BleakClient(device) as client:
+            log(f"connected: {label}")
+            while client.is_connected:
+                started = time.monotonic()
+                try:
+                    data = fetch_compact()
+                except Exception as e:
+                    log(f"snapshot fetch failed: {e}")
+                    await asyncio.sleep(INTERVAL_S)
+                    continue
+                await client.write_gatt_char(RX_CHAR_UUID, data, response=True)
+                await asyncio.sleep(max(0.5, INTERVAL_S - (time.monotonic() - started)))
+    except Exception as e:
+        log(f"{label}: {e}")
+    finally:
+        connected.discard(device.address)
+        log(f"disconnected: {label}")
 
 
 async def main() -> None:
-    log("AgentsHUD BLE daemon starting")
+    log("AgentsHUD BLE daemon starting" + (f" (filter: {','.join(ONLY)})" if ONLY else ""))
+    connected: set = set()
     while True:
         try:
-            await run_connection()
+            found = await BleakScanner.discover(timeout=5, return_adv=True)
+            for device, ad in found.values():
+                if device.address not in connected and is_dial(device, ad):
+                    connected.add(device.address)
+                    asyncio.create_task(serve_dial(device, connected))
         except Exception as e:
-            log(f"ble error: {e}")
-        await asyncio.sleep(3)
+            log(f"scan error: {e}")
+        await asyncio.sleep(SCAN_EVERY_S)
 
 
 if __name__ == "__main__":
