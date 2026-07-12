@@ -42,7 +42,15 @@ static lv_obj_t *s_view_usage;
 static lv_obj_t *s_state_ring;
 static lv_obj_t *s_view_clawd;
 static lv_obj_t *s_view_detail;
-static lv_obj_t *s_logo;
+
+/* Mini animated Clawd atop the usage view (80px, cell=4). */
+static lv_obj_t *s_mini_canvas;
+static uint16_t *s_mini_buf;
+static uint16_t s_mini_anim;
+static uint16_t s_mini_frame;
+static uint32_t s_mini_frame_ms;
+static uint32_t s_mini_pick_ms;
+static int s_mini_group = -1;
 static lv_image_dsc_t s_logo_dsc;
 static usage_card_t s_card_5h;
 static usage_card_t s_card_7d;
@@ -183,13 +191,64 @@ static void clawd_pick(void)
     clawd_render();
 }
 
+#define MINI_PX 80
+#define MINI_CELL (MINI_PX / CLAWD_GRID)
+
+static void mini_render(void)
+{
+    if (!s_mini_buf) return;
+    const splash_anim_def_t *a = &splash_anims[s_mini_anim];
+    const uint8_t *cells = a->frames[s_mini_frame];
+    for (int gy = 0; gy < CLAWD_GRID; gy++) {
+        for (int gx = 0; gx < CLAWD_GRID; gx++) {
+            uint8_t code = cells[gy * CLAWD_GRID + gx];
+            uint16_t color = (code < SPLASH_PALETTE_SIZE) ? a->palette[code] : 0x0000;
+            for (int dy = 0; dy < MINI_CELL; dy++) {
+                uint16_t *dst = &s_mini_buf[(gy * MINI_CELL + dy) * MINI_PX + gx * MINI_CELL];
+                for (int dx = 0; dx < MINI_CELL; dx++) dst[dx] = color;
+            }
+        }
+    }
+    if (s_mini_canvas) lv_obj_invalidate(s_mini_canvas);
+}
+
+static void mini_pick(int group)
+{
+    if (s_group_size[group] == 0) return;
+    uint8_t slot = s_group_rot[group] % s_group_size[group];
+    s_group_rot[group]++;
+    s_mini_group = group;
+    s_mini_anim = (uint16_t)s_group_lists[group][slot];
+    s_mini_frame = 0;
+    s_mini_frame_ms = lv_tick_get();
+    s_mini_pick_ms = s_mini_frame_ms;
+    mini_render();
+}
+
 static void clawd_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    if (!s_view_clawd || lv_obj_has_flag(s_view_clawd, LV_OBJ_FLAG_HIDDEN)) return;
-    if (!s_clawd_buf || SPLASH_ANIM_COUNT == 0) return;
-
+    if (SPLASH_ANIM_COUNT == 0) return;
     uint32_t now = lv_tick_get();
+
+    /* Mini Clawd on the usage view: follows the state group live. */
+    if (s_mini_buf && s_view_usage && !lv_obj_has_flag(s_view_usage, LV_OBJ_FLAG_HIDDEN)) {
+        int g = clawd_group();
+        if (g != s_mini_group || now - s_mini_pick_ms >= CLAWD_ROTATE_MS) {
+            mini_pick(g);
+        } else {
+            const splash_anim_def_t *a = &splash_anims[s_mini_anim];
+            if (a->frame_count > 0 && now - s_mini_frame_ms >= a->holds[s_mini_frame]) {
+                s_mini_frame = (s_mini_frame + 1) % a->frame_count;
+                s_mini_frame_ms = now;
+                mini_render();
+            }
+        }
+    }
+
+    /* Full-screen Clawd view. */
+    if (!s_view_clawd || lv_obj_has_flag(s_view_clawd, LV_OBJ_FLAG_HIDDEN)) return;
+    if (!s_clawd_buf) return;
     if (now - s_pick_ms >= CLAWD_ROTATE_MS) {
         clawd_pick();
         return;
@@ -418,10 +477,19 @@ void ui_init(void)
     s_logo_dsc.data = logo_data;
     s_logo_dsc.data_size = LOGO_WIDTH * LOGO_HEIGHT * 3;
 
-    s_logo = lv_image_create(s_view_usage);
-    lv_image_set_src(s_logo, &s_logo_dsc);
-    lv_obj_align(s_logo, LV_ALIGN_TOP_MID, 0, 26);
-    lv_obj_add_flag(s_logo, LV_OBJ_FLAG_EVENT_BUBBLE);
+    /* Animated mini Clawd (falls back to the static logo if alloc fails). */
+    s_mini_buf = heap_caps_malloc(MINI_PX * MINI_PX * 2, MALLOC_CAP_SPIRAM);
+    if (s_mini_buf) {
+        s_mini_canvas = lv_canvas_create(s_view_usage);
+        lv_canvas_set_buffer(s_mini_canvas, s_mini_buf, MINI_PX, MINI_PX, LV_COLOR_FORMAT_RGB565);
+        lv_obj_align(s_mini_canvas, LV_ALIGN_TOP_MID, 0, 26);
+        lv_obj_add_flag(s_mini_canvas, LV_OBJ_FLAG_EVENT_BUBBLE);
+    } else {
+        lv_obj_t *logo = lv_image_create(s_view_usage);
+        lv_image_set_src(logo, &s_logo_dsc);
+        lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 26);
+        lv_obj_add_flag(logo, LV_OBJ_FLAG_EVENT_BUBBLE);
+    }
 
     make_usage_card(s_view_usage, &s_card_5h, "5小时", 124);
     make_usage_card(s_view_usage, &s_card_7d, "7天", 252);
@@ -452,6 +520,7 @@ void ui_init(void)
     lv_obj_add_flag(s_view_clawd, LV_OBJ_FLAG_HIDDEN);
 
     clawd_resolve_groups();
+    mini_pick(0);
     s_clawd_cell = 466 / CLAWD_GRID; /* 23 -> 460x460 canvas */
     s_clawd_w = CLAWD_GRID * s_clawd_cell;
     s_clawd_buf = heap_caps_malloc(s_clawd_w * s_clawd_w * 2, MALLOC_CAP_SPIRAM);
