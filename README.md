@@ -16,6 +16,7 @@
 
 由两部分组成：电脑端 **server**（采集 `~/.claude` 数据并通过局域网下发）和 **Android App**（扫码连接、全屏看板）。
 另有可选的 **Mac 菜单栏 App**：同机免配对，菜单栏一个状态色圆点、点击弹出同款悬浮面板（见 [`mac/`](mac/)）。
+还有可选的 **ESP32 圆屏摆件**：一块 1.75 寸圆形 AMOLED 通过蓝牙直连 Mac，桌面常亮显示用量表盘（见 [`esp32/`](esp32/)）。
 
 ---
 
@@ -71,6 +72,24 @@ App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动
 `agents-hud-*-mac.dmg`（通用二进制，需 macOS 13+），把 App 拖进「应用程序」即可（DMG 已 Apple 公证，
 正常双击打开）。详情与从源码构建见 [`mac/README.md`](mac/README.md)。
 
+## ESP32 圆屏摆件（可选，蓝牙）
+
+用 Waveshare **ESP32-S3-Touch-AMOLED-1.75**（466×466 圆形 AMOLED）做的桌面表盘：
+5 小时 / 7 天用量卡片、重置倒计时、工作状态（思考中…/等你回复 ×N），点按屏幕切换
+「用量 → Clawd 像素宠物 → 详情」三个页面，宠物会按烧 token 速率睡觉/写代码/蹦迪。
+侧面 BOOT 键短按旋转屏幕 90°（记忆方向）。
+
+**纯蓝牙直连、无需网络**：屏幕插上任意 USB 电源即可，server 的 BLE 推送进程会自动
+发现并连接（brew 安装已内置运行环境）：
+
+```bash
+agents-hud ble on              # 开启蓝牙推送（首次弹蓝牙授权，点允许）
+agents-hud ble list            # 扫描列出附近的屏幕（编号见屏幕详情页，如 F232）
+agents-hud ble connect F232    # 多块屏时只连指定编号；connect all 恢复全部
+```
+
+固件编译烧录、协议与硬件坑见 [`esp32/README.md`](esp32/README.md)。
+
 ---
 
 ## 常用命令
@@ -81,6 +100,7 @@ agents-hud status                    # 查看服务状态
 agents-hud update                    # 升级到最新版（有更新才重启）
 agents-hud connect                   # 打印配对二维码 + 连接信息
 agents-hud setup-hooks               # 安装 Claude hooks（uninstall-hooks 移除）
+agents-hud ble on|off|list|connect   # ESP32 圆屏蓝牙推送（见上文）
 agents-hud help                      # 全部命令
 ```
 

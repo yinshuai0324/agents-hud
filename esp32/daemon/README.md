@@ -6,14 +6,20 @@
 
 > 通过 brew 安装的话不需要手动跑本目录任何东西：`agents-hud ble on` 即可。
 
-## 多块屏幕
+## 多块屏幕与指定连接
 
-每块屏的广播名带唯一后缀（蓝牙地址后两字节），如 `AgentsHUD-F232`。
-守护进程默认**同时连接范围内的所有屏幕**、逐一推送。只想连特定屏幕时：
+每块屏的广播名带唯一后缀（蓝牙地址后两字节，如 `AgentsHUD-F232`），编号显示在
+屏幕的详情页。守护进程默认**同时连接范围内的所有屏幕**、逐一推送；用 CLI 指定：
 
 ```bash
-AGENTS_HUD_BLE_ONLY=F232 .venv/bin/python agents_hud_ble.py   # 按名字/地址子串过滤，逗号分隔多个
+agents-hud ble list            # 扫描列出附近屏幕（编号 / 名称 / 信号 / 地址）
+agents-hud ble connect F232    # 只连指定编号（写 ~/.claude/agents-hud-ble.target）
+agents-hud ble connect all     # 恢复连接全部
 ```
+
+目标文件每轮扫描前热加载，改动**秒级生效、无需重启**；不匹配的已连屏幕会被主动
+释放。屏幕被连接期间保持仅可发现广播，`ble list` 始终能看到它。手动运行时也可用
+`AGENTS_HUD_BLE_ONLY=F232`（逗号分隔多个）作为附加过滤。
 
 连接了谁看日志即知：`connected: AgentsHUD-F232 [XXXXXXXX-...]`。
 
@@ -67,3 +73,4 @@ RX characteristic `...000002`（write）。每次写入一条压缩 JSON（~200B
 | lv | 1=官方实时数据, 0=本地估算 |
 | w/n/wa/e/q/to | working/notify/waiting/error/quiet/总会话数 |
 | m / pl | 模型名 / 套餐名 |
+| h | 推送方主机名（屏幕详情页「主机」行） |
