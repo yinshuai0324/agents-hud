@@ -20,8 +20,10 @@ static const char *TAG = "ahud_ble";
  * dials are distinguishable, e.g. "AgentsHUD-F232". */
 #define DEVICE_NAME_BASE "AgentsHUD"
 static char s_device_name[24] = DEVICE_NAME_BASE;
-/* Data considered stale when no write arrives for this long. */
-#define STALE_MS 12000
+/* Data considered stale when no write arrives for this long. Pushes come every
+ * 3s, but a dropped connection needs a scan round plus connect time to recover
+ * — under ~30s the screen just flashes "数据超时" during normal reconnects. */
+#define STALE_MS 30000
 
 /* Service 41485544-6469-616c-2d64-617461-... ("AHUD dial-data"), RX char ..02.
  * NimBLE stores 128-bit UUIDs little-endian (reversed byte order). */

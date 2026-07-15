@@ -38,6 +38,11 @@ SCAN_EVERY_S = 8.0
 # The dial can reject a host (switch/lock buttons). A rejected connection is
 # torn down within seconds — back off so we don't hammer it.
 REJECT_COOLDOWN_S = 60.0
+# macOS CoreBluetooth sessions go stale in long-running processes (scans start
+# failing with a bogus "Bluetooth device is turned off"). With nothing
+# connected, exit after this many consecutive scan failures — the server
+# respawns us in seconds with a fresh Bluetooth session.
+MAX_SCAN_FAILURES = 5
 HOSTNAME = platform.node().split(".")[0][:23] or "mac"
 
 ONLY = [s.strip().lower() for s in os.environ.get("AGENTS_HUD_BLE_ONLY", "").split(",") if s.strip()]
@@ -104,7 +109,7 @@ def matches_target(device, targets: list) -> bool:
     return any(want in ident for want in targets)
 
 
-async def serve_dial(device, connected: set, cooldown: dict) -> None:
+async def serve_dial(device, connected: dict, cooldown: dict) -> None:
     label = f"{device.name or 'AgentsHUD'} [{device.address}]"
     started_at = time.monotonic()
     try:
@@ -126,7 +131,7 @@ async def serve_dial(device, connected: set, cooldown: dict) -> None:
     except Exception as e:
         log(f"{label}: {e}")
     finally:
-        connected.discard(device.address)
+        connected.pop(device.address, None)
         if time.monotonic() - started_at < 10:
             cooldown[device.address] = time.monotonic() + REJECT_COOLDOWN_S
             log(f"disconnected fast (rejected by dial?): {label} — cooling down {int(REJECT_COOLDOWN_S)}s")
@@ -136,21 +141,33 @@ async def serve_dial(device, connected: set, cooldown: dict) -> None:
 
 async def main() -> None:
     log(f"AgentsHUD BLE daemon starting as \"{HOSTNAME}\"" + (f" (filter: {','.join(ONLY)})" if ONLY else ""))
-    connected: set = set()
+    connected: dict = {}  # address -> lowercased "name address" ident
     cooldown: dict = {}
+    scan_failures = 0
     while True:
+        targets = read_targets()
+        # Every explicit target already served: leave the radio alone. Churning
+        # out a scanner every 8s is what wears the CoreBluetooth session out.
+        if targets and all(any(t in ident for ident in connected.values()) for t in targets):
+            scan_failures = 0
+            await asyncio.sleep(SCAN_EVERY_S)
+            continue
         try:
             found = await BleakScanner.discover(timeout=5, return_adv=True)
+            scan_failures = 0
             now = time.monotonic()
-            targets = read_targets()
             for device, ad in found.values():
                 if device.address in connected or cooldown.get(device.address, 0) > now:
                     continue
                 if is_dial(device, ad) and matches_target(device, targets):
-                    connected.add(device.address)
+                    connected[device.address] = f"{device.name or ''} {device.address}".lower()
                     asyncio.create_task(serve_dial(device, connected, cooldown))
         except Exception as e:
+            scan_failures += 1
             log(f"scan error: {e}")
+            if scan_failures >= MAX_SCAN_FAILURES and not connected:
+                log(f"{scan_failures} consecutive scan failures with no dial connected — exiting for a fresh Bluetooth session")
+                sys.exit(1)
         await asyncio.sleep(SCAN_EVERY_S)
 
 
