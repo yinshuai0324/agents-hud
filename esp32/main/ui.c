@@ -434,12 +434,16 @@ static void refresh_status(void)
     }
 
     switch (s_net) {
-    case AHUD_NET_WIFI_CONNECTING:
+    case AHUD_NET_PROVISIONING:
         if (net_device_id()[0]) {
-            snprintf(buf, sizeof(buf), "等待蓝牙连接 · %s", net_device_id());
+            snprintf(buf, sizeof(buf), "等待配对 · %s", net_device_id());
         } else {
-            snprintf(buf, sizeof(buf), "等待蓝牙连接…");
+            snprintf(buf, sizeof(buf), "等待配对…");
         }
+        color = COL_ACCENT;
+        break;
+    case AHUD_NET_WIFI_CONNECTING:
+        snprintf(buf, sizeof(buf), "连接 WiFi…");
         color = COL_ACCENT;
         break;
     case AHUD_NET_SERVER_UNREACHABLE:

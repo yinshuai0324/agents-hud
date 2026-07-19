@@ -12,10 +12,8 @@
 #include "driver/gpio.h"
 #include "soc/rtc_cntl_reg.h"
 #include "lvgl.h"
-#include "bsp/esp-bsp.h"
-#include "bsp/display.h"
 
-#include "bsp_custom.h"
+#include "board.h"
 #include "idle.h"
 #include "net.h"
 #include "ui.h"
@@ -31,7 +29,7 @@ static void on_update(const ahud_snapshot_t *snap, ahud_net_state_t net)
 
 /**
  * USB console: 'b' reboots into ROM download mode (flash without touching
- * the BOOT button), 'r' plain reboot.
+ * the BOOT button), 'r' plain reboot, 'p' erases provisioning (re-pair).
  */
 static void console_task(void *arg)
 {
@@ -54,6 +52,8 @@ static void console_task(void *arg)
             } else if (c == 'z') {
                 ESP_LOGW(TAG, "forcing idle sleep");
                 idle_force_sleep();
+            } else if (c == 'p') {
+                net_reset_provisioning(); /* erases WiFi creds + reboots */
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -62,7 +62,8 @@ static void console_task(void *arg)
 }
 
 /**
- * BOOT key (GPIO0) as user button: short press rotates the display 90°.
+ * BOOT key (GPIO0) as user button: short press rotates the display 90°,
+ * long press (>=3s) erases provisioning and reboots into pairing mode.
  * The orientation persists in NVS across reboots.
  */
 static void button_task(void *arg)
@@ -95,6 +96,16 @@ static void button_task(void *arg)
                 last = 0;
                 continue;
             }
+            /* Held >=3s -> factory re-pair; released earlier -> rotate. */
+            uint32_t held_ms = 0;
+            while (gpio_get_level(GPIO_NUM_0) == 0 && held_ms < 3000) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+                held_ms += 50;
+            }
+            if (held_ms >= 3000) {
+                ESP_LOGW(TAG, "BOOT long press -> reset provisioning");
+                net_reset_provisioning(); /* does not return */
+            }
             rot = (rot + 1) % 4;
             ESP_LOGI(TAG, "rotate display -> %d deg", rot * 90);
             bsp_display_lock(0);
@@ -119,7 +130,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
 
-    ESP_ERROR_CHECK(bsp_custom_init());
+    ESP_ERROR_CHECK(board_init());
 
     bsp_display_lock(-1);
     ui_init();

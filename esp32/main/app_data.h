@@ -28,8 +28,9 @@ typedef struct {
 } ahud_snapshot_t;
 
 typedef enum {
-    AHUD_NET_WIFI_CONNECTING,
-    AHUD_NET_SERVER_UNREACHABLE,
+    AHUD_NET_PROVISIONING,       /* unprovisioned: BLE pairing mode */
+    AHUD_NET_WIFI_CONNECTING,    /* joining WiFi / no server link yet */
+    AHUD_NET_SERVER_UNREACHABLE, /* WiFi up but no fresh data from the server */
     AHUD_NET_OK,
 } ahud_net_state_t;
 
