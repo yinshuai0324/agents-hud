@@ -45,6 +45,17 @@ class AgentsHud < Formula
     error_log_path var/"log/agents-hud.log"
   end
 
+  def caveats
+    <<~EOS
+      ⚠️  brew 版 AgentsHUD 已停止维护：数据服务现已内置在 Mac App 中。
+      请下载 Agents-HUD.app（拖进「应用程序」即可，无需 node/brew）：
+        https://github.com/yinshuai0324/agents-hud/releases/latest
+      迁移前先停掉本服务，避免与 App 抢 4317 端口：
+        brew services stop agents-hud
+      hooks 无需重装（脚本路径不变，App 会原地接管）。
+    EOS
+  end
+
   test do
     port = free_port
     pid = spawn({ "CC_SIGNAL_PORT" => port.to_s }, bin/"agents-hud")

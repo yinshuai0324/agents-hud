@@ -1,55 +1,38 @@
 # AgentsHUD
 
 一个 Claude Code 状态面板：竖排红绿灯一眼看清整体状态，实时展示每个会话的运行状态、当前调用的
-工具、上下文剩余、token 消耗、5 小时 / 7 天套餐用量与当前模型。两种看板任选——**Android 手机**
-（扫码、局域网连接，做一块常亮大屏）或 **Mac 菜单栏 App**（同机免配对，AI 干完活弹通知提醒）。
+工具、上下文剩余、token 消耗、5 小时 / 7 天套餐用量与当前模型。**Mac App 是中枢**（菜单栏面板 +
+内置数据服务），另可搭配 **Android 手机**（扫码、局域网连接，做一块常亮大屏）和 **ESP32 圆屏摆件**
+（WiFi 直连，桌面常亮用量表盘）。
 
 ![AgentsHUD 看板](docs/screenshot.png)
 
 ```
-┌──────────────┐                       ┌──────────────────────────┐
-│  Mac 菜单栏   │  ◀── 本机 127.0.0.1 ──│                          │
-│  (SwiftUI)   │                       │  server (本机 Node)        │
-└──────────────┘                       │  读 ~/.claude 会话数据      │
-┌──────────────┐   局域网 WebSocket    │  + Hooks + statusLine 上报 │
-│  Android App │  ◀──── 扫码配对 ──────│                          │
-│  (Compose)   │                       │                          │
-└──────────────┘                       └──────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Agents-HUD.app（Mac 菜单栏，内置 server:4317） │
+│  读 ~/.claude 会话数据 + Hooks/statusLine 上报  │
+│  Bonjour 发布 · Sparkle 自更新 · 设备管理       │
+└──────┬────────────────┬──────────────────────┘
+       │ 局域网 WebSocket │ WS /device（紧凑流）
+       │  （扫码配对）     │  首次用 BLE 配网下发 WiFi
+┌──────▼───────┐  ┌──────▼──────────┐
+│  Android App │  │  ESP32 圆屏表盘  │
+│  (Compose)   │  │  (LVGL, WiFi)   │
+└──────────────┘  └─────────────────┘
 ```
 
-由三部分组成：电脑端 **server**（采集 `~/.claude` 数据、通过 WebSocket 下发），以及两种共用同一套
-数据契约的客户端——**Android App**（扫码连接、全屏看板）和 **Mac 菜单栏 App**（同机直连、菜单栏
-常驻 + 状态通知）。
-另有可选的 **ESP32 圆屏摆件**：一块 1.75 寸圆形 AMOLED 通过蓝牙直连 Mac，桌面常亮显示用量表盘（见 [`esp32/`](esp32/)）。
+**安装只需一步**：从 [GitHub Releases](https://github.com/yinshuai0324/agents-hud/releases/latest)
+下载 `agents-hud-*-mac.dmg`，拖进「应用程序」打开即可 —— 数据采集服务内置在 App 里，
+不再需要 Homebrew / Node。App 内可一键安装 Claude hooks、弹出手机配对二维码、配网/升级 ESP32
+设备，并通过 Sparkle 自动检查自身更新。
 
----
+> **hooks 是什么**：右键菜单栏图标 →「安装 Claude Code 钩子」。装上后状态最准最实时，并能拿到
+> 官方用量、上下文剩余、会话标题、当前模型、实时工具调用。不装也能用（靠文件监听推断，只能区分
+> 工作/等候/空闲）。装完**重启正在运行的 Claude 会话**即可生效。
 
-## 安装电脑端服务（macOS）
-
-**方式 A：一键脚本（推荐）**
-
-自动检测/安装 Homebrew、node，装好服务、**安装 Claude hooks**并启动：
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/yinshuai0324/agents-hud/main/install.sh)"
-```
-
-> 用 `bash -c "$(curl …)"` 形式（不要用 `curl … | bash`），否则脚本里的安装提示读不到键盘输入。
-
-**方式 B：手动 Homebrew**
-
-```bash
-brew install node                              # 运行依赖（已装可跳过）
-brew tap yinshuai0324/agents-hud https://github.com/yinshuai0324/agents-hud
-brew trust yinshuai0324/agents-hud             # Homebrew 6+ 需信任第三方 tap（一次性）
-brew install agents-hud
-agents-hud setup-hooks                         # 安装 Claude hooks（强烈建议）
-brew services start agents-hud                 # launchd 托管，开机自启、崩溃重启
-```
-
-> **hooks 是什么**：装上后状态最准最实时，并能拿到官方用量、上下文剩余、会话标题、当前模型、
-> 实时工具调用。不装也能用（靠文件监听推断，只能区分 工作/等候/空闲）。装完**重启正在运行的
-> Claude 会话**即可生效。
+> **从 brew 旧版迁移**：新版 App 启动时若发现旧的 brew 服务占着 4317 端口，会提示你执行
+> `brew services stop agents-hud`。hooks 无需重装（脚本路径不变）。brew 安装方式已停止维护，
+> `server/`、`install.sh`、`Formula/` 将在后续版本移除。
 
 ## 安装手机 App
 
@@ -61,57 +44,43 @@ App 为全屏常驻（kiosk）设计：隐藏状态栏/导航栏、屏蔽返回�
 
 ## 配对
 
-App 首次启动进入扫码页 → 对准电脑终端里的二维码 → 自动连接并显示面板。配对信息会保存，
-下次启动自动重连。面板左上角“重扫”可重新配对。**手机与电脑须在同一局域网。**
+App 首次启动进入扫码页 → 右键 Mac 菜单栏图标 →「连接手机…」弹出二维码 → 扫码自动连接并显示
+面板。配对信息会保存，下次启动自动重连。面板左上角“重扫”可重新配对。**手机与电脑须在同一局域网。**
 
-看不到二维码？在电脑上运行 `agents-hud connect` 重新打印。
+## Mac 菜单栏 App（中枢）
 
-## Mac 菜单栏 App（同机，无需扫码）
-
-在装了 server 的这台 Mac 上常驻菜单栏，**无需扫码**——直接连本机 `127.0.0.1:4317`，复用同一套数据。
+菜单栏常驻，数据服务内置（监听 `0.0.0.0:4317`，供本机面板、手机与 ESP32 设备共用）。
 
 - **菜单栏图标**：sparkle ✶ + 右下角状态色小点（黄=工作 / 蓝=等候 / 橙=审批 / 红=出错 / 绿=空闲），
   不展开也能一眼看状态。
 - **左键**弹出毛玻璃悬浮面板：套餐、5h / 7d 用量、当前模型、今日消耗、速度（与手机端同款，竖排紧凑版）。
-- **右键**菜单：通知开关 / 刷新 / 退出。
+- **右键**菜单：通知开关 / 连接手机（配对二维码）/ 设备（ESP32 配网 + 固件升级）/ 安装 Claude Code
+  钩子 / 检查更新 / 刷新 / 退出。
 - **状态通知**：AI 答完一轮（轮到你）、等你审批、或出错时，弹系统横幅 + 提示音——切到别的窗口
   也不会错过。首次打开按系统提示**允许通知**。
+- **自动更新**：内置 Sparkle，有新版会在应用内提示并原地升级（也可右键「检查更新…」手动检查）。
 
-从 [GitHub Releases](https://github.com/yinshuai0324/agents-hud/releases/latest) 下载
-`agents-hud-*-mac.dmg`（通用二进制，Apple Silicon / Intel 通吃，需 macOS 13+），拖进「应用程序」即可。
-DMG 经 **Apple 公证**，双击正常打开、无 Gatekeeper 提示。从源码构建见 [`mac/README.md`](mac/README.md)。
+DMG 为通用二进制（Apple Silicon / Intel 通吃，需 macOS 13+），经 **Apple 公证**，双击正常打开、
+无 Gatekeeper 提示。从源码构建见 [`mac/README.md`](mac/README.md)。
 
-## ESP32 圆屏摆件（可选，蓝牙）
+## ESP32 圆屏摆件（可选，WiFi）
 
 用 Waveshare **ESP32-S3-Touch-AMOLED-1.75**（466×466 圆形 AMOLED）做的桌面表盘：
 5 小时 / 7 天用量卡片、重置倒计时、工作状态（思考中…/等你回复 ×N），点按屏幕切换
 「用量 → Clawd 像素宠物 → 详情」三个页面，宠物会按烧 token 速率睡觉/写代码/蹦迪。
-侧面 BOOT 键短按旋转屏幕 90°（记忆方向）。
+侧面 BOOT 键短按旋转屏幕 90°（记忆方向），**长按 3 秒重新配网**。
 
-**纯蓝牙直连、无需网络**：屏幕插上任意 USB 电源即可，server 的 BLE 推送进程会自动
-发现并连接（brew 安装已内置运行环境）：
+**WiFi 直连**：插上任意 USB 电源即可，不用一直连着电脑。
 
-```bash
-agents-hud ble on              # 开启蓝牙推送（首次弹蓝牙授权，点允许）
-agents-hud ble list            # 扫描列出附近的屏幕（编号见屏幕详情页，如 F232）
-agents-hud ble connect F232    # 多块屏时只连指定编号；connect all 恢复全部
-```
+1. 首次使用：屏幕显示「等待配对 · F232」→ Mac 菜单栏右键 →「设备…」→ 扫描 → 选中设备，
+   输入 WiFi 名称和密码（2.4GHz）→「下发配置」。配置通过蓝牙一次性写入，之后全程走 WiFi。
+2. 配好后设备直连 Mac 上的 4317 服务；Mac 换了 IP 也不用管——设备会通过 Bonjour/mDNS 自动
+   找回服务。
+3. **固件升级**走 USB：把设备用数据线连上 Mac →「设备」窗口 →「检查最新固件」→「烧录」。
+   App 会自动让设备进入下载模式、分块写入并逐块校验。
 
-固件编译烧录、协议与硬件坑见 [`esp32/README.md`](esp32/README.md)。
-
----
-
-## 常用命令
-
-```bash
-agents-hud start | stop | restart    # 管理后台服务
-agents-hud status                    # 查看服务状态
-agents-hud update                    # 升级到最新版（有更新才重启）
-agents-hud connect                   # 打印配对二维码 + 连接信息
-agents-hud setup-hooks               # 安装 Claude hooks（uninstall-hooks 移除）
-agents-hud ble on|off|list|connect   # ESP32 圆屏蓝牙推送（见上文）
-agents-hud help                      # 全部命令
-```
+固件编译烧录、协议与硬件坑见 [`esp32/README.md`](esp32/README.md)；完整通信协议见
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md)。
 
 ---
 
