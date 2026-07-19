@@ -1,0 +1,64 @@
+name: esp32
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version name, e.g. 0.2.0 (defaults from the tag)"
+        required: false
+
+permissions:
+  contents: write # upload release assets
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        board: [ws175] # one entry per boards/<id>/ HAL component
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: ver
+        run: |
+          NAME="${{ github.event.inputs.version }}"
+          [ -z "$NAME" ] && NAME="${GITHUB_REF_NAME#v}"
+          echo "$NAME" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || NAME="0.0.0"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          # Firmware version comes from the VERSION file at build time; make
+          # sure it matches the tag so hello-reported versions line up.
+          echo "$NAME" > VERSION
+
+      - name: Build firmware (IDF v5.4)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4.1
+          target: esp32s3
+          path: esp32
+          command: idf.py -DAHUD_BOARD=${{ matrix.board }} build
+
+      - name: Package firmware zip + manifest
+        run: |
+          VERSION="${{ steps.ver.outputs.name }}"
+          BOARD="${{ matrix.board }}"
+          OUT="agents-hud-${VERSION}-esp32-${BOARD}"
+          python3 scripts/package-firmware.py esp32/build "$BOARD" "$VERSION" "$OUT"
+          ls -la "$OUT"
+          (cd "$OUT" && zip -r "../$OUT.zip" .)
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agents-hud-${{ steps.ver.outputs.name }}-esp32-${{ matrix.board }}
+          path: agents-hud-${{ steps.ver.outputs.name }}-esp32-${{ matrix.board }}.zip
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: agents-hud-${{ steps.ver.outputs.name }}-esp32-${{ matrix.board }}.zip
+          fail_on_unmatched_files: true

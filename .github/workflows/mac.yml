@@ -24,6 +24,13 @@ jobs:
       MAC_NOTARY_KEY_BASE64: ${{ secrets.MAC_NOTARY_KEY_BASE64 }}
       MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
       MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
+      # Sparkle auto-update keys. Optional: without them the app builds with
+      # in-app updates disabled and no appcast is published.
+      #   Generate once:  .build/artifacts/.../bin/generate_keys
+      #   SPARKLE_ED_PUBLIC_KEY  -> repo/organization *variable* (not secret)
+      #   SPARKLE_ED_PRIVATE_KEY -> repo secret (base64 as printed by -x)
+      SPARKLE_ED_PUBLIC_KEY: ${{ vars.SPARKLE_ED_PUBLIC_KEY }}
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +65,9 @@ jobs:
           echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
           echo "Signing identity: $IDENTITY"
 
+      - name: Fetch esptool binaries (bundled for firmware flashing)
+        run: bash scripts/fetch-esptool.sh
+
       - name: Build universal .app
         working-directory: mac
         env:
@@ -85,6 +95,38 @@ jobs:
           xcrun stapler validate "$DMG"
           rm -f "$RUNNER_TEMP/notary.p8"
 
+      - name: Generate Sparkle appcast
+        if: env.SPARKLE_ED_PRIVATE_KEY != ''
+        working-directory: mac
+        run: |
+          VERSION="${{ steps.ver.outputs.name }}"
+          DMG="agents-hud-${VERSION}-mac.dmg"
+          # sign_update ships inside the Sparkle SPM artifact fetched by the build.
+          SIGN_UPDATE="$(find .build/artifacts -type f -name sign_update -perm +111 | head -1)"
+          [ -n "$SIGN_UPDATE" ] || { echo "sign_update not found in Sparkle artifact" >&2; exit 1; }
+          SIG_ATTRS="$(echo "$SPARKLE_ED_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - "$DMG")"
+          LEN=$(stat -f%z "$DMG")
+          PUBDATE="$(LC_ALL=en_US.UTF-8 date -u '+%a, %d %b %Y %H:%M:%S +0000')"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${DMG}"
+          cat > appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Agents-HUD</title>
+              <item>
+                <title>${VERSION}</title>
+                <pubDate>${PUBDATE}</pubDate>
+                <sparkle:version>${VERSION}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+                <sparkle:releaseNotesLink>https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION}</sparkle:releaseNotesLink>
+                <enclosure url="${URL}" ${SIG_ATTRS} length="${LEN}" type="application/octet-stream"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+          cat appcast.xml
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -96,5 +138,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: mac/agents-hud-${{ steps.ver.outputs.name }}-mac.dmg
-          fail_on_unmatched_files: true
+          files: |
+            mac/agents-hud-${{ steps.ver.outputs.name }}-mac.dmg
+            mac/appcast.xml
+          fail_on_unmatched_files: false

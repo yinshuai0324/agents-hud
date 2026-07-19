@@ -4,15 +4,19 @@
 #
 #   scripts/release.sh [patch|minor|major|X.Y.Z] [--dry-run]
 #
-# Bumps server/package.json, commits + tags vX.Y.Z, pushes, then downloads the
-# GitHub tag tarball, computes its sha256, and rewrites Formula/agents-hud.rb
-# (url + sha256 + version) and pushes that too. Default bump is `patch`.
+# Bumps the repo-root VERSION file (single source of truth — the Mac app,
+# ESP32 firmware and CI all read it), keeps server/package.json in sync during
+# the Node deprecation window, commits + tags vX.Y.Z, pushes, then downloads
+# the GitHub tag tarball, computes its sha256, and rewrites
+# Formula/agents-hud.rb (legacy brew path) and pushes that too.
+# Default bump is `patch`.
 #
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not in a git repo" >&2; exit 1; }
 
 REPO="yinshuai0324/agents-hud"
+VERSION_FILE="VERSION"
 PKG="server/package.json"
 FORMULA="Formula/agents-hud.rb"
 
@@ -29,10 +33,9 @@ for a in "$@"; do
 done
 arg="${args[0]:-patch}"
 
-[ -f "$PKG" ] && [ -f "$FORMULA" ] || die "找不到 $PKG / $FORMULA，请在仓库根运行。"
-command -v node >/dev/null 2>&1 || die "需要 node。"
+[ -f "$VERSION_FILE" ] || die "找不到 $VERSION_FILE，请在仓库根运行。"
 
-cur=$(node -p "require('./$PKG').version")
+cur=$(tr -d '[:space:]' < "$VERSION_FILE")
 case "$arg" in
   major|minor|patch)
     IFS=. read -r MA MI PA <<<"$cur"
@@ -52,10 +55,10 @@ info "当前 $cur → 新版本 $new ($tag)$([ $DRY = 1 ] && echo '   [dry-run]'
 if [ $DRY = 1 ]; then
   cat <<EOF
 将执行：
-  1) 写入 $PKG 版本 $new → commit "chore: release $tag" + 打 tag $tag
+  1) 写入 $VERSION_FILE 版本 $new（同步 $PKG，如果还在）→ commit "chore: release $tag" + 打 tag $tag
   2) git push && git push origin $tag
   3) 下载 $tag 的 tarball 计算 sha256
-  4) 改写 $FORMULA 的 url/sha256/version → commit + push
+  4) 改写 $FORMULA 的 url/sha256/version（brew 遗留路径，如果还在）→ commit + push
 EOF
   exit 0
 fi
@@ -65,19 +68,30 @@ fi
 [ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || die "请在 main 分支发版。"
 git rev-parse "$tag" >/dev/null 2>&1 && die "tag $tag 已存在。"
 
-# --- bump + commit + tag (plain git; npm version proved unreliable here) ---
+# --- bump + commit + tag ---
 info "bump + commit + tag ..."
-perl -0pi -e "s{(\"version\":\s*\")[0-9.]+(\")}{\${1}$new\${2}}" "$PKG"
-grep -q "\"version\": \"$new\"" "$PKG" || die "未能写入新版本号到 $PKG。"
-# Keep the lockfile's version in sync (best-effort, offline).
-( cd server && npm install --package-lock-only --prefer-offline --silent >/dev/null 2>&1 || true )
-git add "$PKG" server/package-lock.json
+printf '%s\n' "$new" > "$VERSION_FILE"
+git add "$VERSION_FILE"
+# Transitional: keep the deprecated Node server's version in sync while it
+# still ships (removed together with server/ in the retirement phase).
+if [ -f "$PKG" ]; then
+  perl -0pi -e "s{(\"version\":\s*\")[0-9.]+(\")}{\${1}$new\${2}}" "$PKG"
+  grep -q "\"version\": \"$new\"" "$PKG" || die "未能写入新版本号到 $PKG。"
+  ( cd server && npm install --package-lock-only --prefer-offline --silent >/dev/null 2>&1 || true )
+  git add "$PKG" server/package-lock.json
+fi
 git commit -q -m "chore: release $tag"
 git tag -a "$tag" -m "$tag"
 
 info "推送 commit + tag ..."
 git push
 git push origin "$tag"
+
+# --- legacy brew formula (skipped once Formula/ is retired) ---
+if [ ! -f "$FORMULA" ]; then
+  info "✅ 已发布 $tag（无 Formula，跳过 brew 步骤）"
+  exit 0
+fi
 
 # --- fetch tarball + sha256 ---
 url="https://github.com/$REPO/archive/refs/tags/$tag.tar.gz"

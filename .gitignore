@@ -27,3 +27,6 @@ android/captures/
 
 # Kotlin compiler session caches
 android/.kotlin/
+
+# Fetched esptool binaries (scripts/fetch-esptool.sh) — not committed
+mac/Vendor/esptool/
