@@ -1,0 +1,5 @@
+{"type":"user","cwd":"/Users/test/deep/nested/projB","timestamp":"2026-01-01T23:00:00.000Z"}
+{"type":"assistant","cwd":"/Users/test/deep/nested/projB","timestamp":"2026-01-01T23:00:10.000Z","message":{"id":"msg_B1","model":"fable-5","usage":{"input_tokens":500,"output_tokens":800,"cache_creation_input_tokens":0,"cache_read_input_tokens":100}}}
+{"type":"assistant","timestamp":"2026-01-02T11:00:00.000Z","message":{"id":"msg_B2","model":"<synthetic>","usage":{"input_tokens":7,"output_tokens":9,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-01-02T11:00:05.000Z","message":{"id":"msg_A1","model":"claude-opus-4-8[1m]","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":2000,"cache_read_input_tokens":5000}}}
+{"type":"assistant","timestamp":"2026-01-02T11:30:00.000Z","message":{"id":"msg_B3","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":40,"output_tokens":60,"cache_creation_input_tokens":0,"cache_read_input_tokens":10}}}

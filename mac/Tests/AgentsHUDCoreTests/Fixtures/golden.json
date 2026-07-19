@@ -1,0 +1,97 @@
+{
+  "now": 1767355200000,
+  "sessions": [
+    {
+      "id": "s1",
+      "provider": "claude",
+      "cwd": "/Users/test/projA",
+      "project": "Users/test/projA",
+      "model": "claude-opus-4-8[1m]",
+      "lastActivity": 1767348360000,
+      "firstActivity": 1767348000000,
+      "usage": {
+        "input": 110,
+        "output": 70,
+        "cacheCreate": 3000,
+        "cacheRead": 5000,
+        "total": 3180
+      },
+      "contextTokens": 1010
+    },
+    {
+      "id": "s2",
+      "provider": "claude",
+      "cwd": "/Users/test/deep/nested/projB",
+      "project": "deep/nested/projB",
+      "model": "claude-haiku-4-5-20251001",
+      "lastActivity": 1767353400000,
+      "firstActivity": 1767308400000,
+      "usage": {
+        "input": 647,
+        "output": 919,
+        "cacheCreate": 2000,
+        "cacheRead": 5110,
+        "total": 3566
+      },
+      "contextTokens": 50
+    },
+    {
+      "id": "s3",
+      "provider": "claude",
+      "cwd": "",
+      "project": "unknown",
+      "model": "claude-sonnet-5",
+      "lastActivity": 0,
+      "firstActivity": 0,
+      "usage": {
+        "input": 11,
+        "output": 13,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "total": 24
+      },
+      "contextTokens": 11
+    }
+  ],
+  "usageEvents": [
+    {
+      "ts": 1767308410000,
+      "tokens": 1300
+    },
+    {
+      "ts": 1767348005000,
+      "tokens": 2150
+    },
+    {
+      "ts": 1767348300000,
+      "tokens": 1030
+    },
+    {
+      "ts": 1767351600000,
+      "tokens": 16
+    },
+    {
+      "ts": 1767351605000,
+      "tokens": 2150
+    },
+    {
+      "ts": 1767353400000,
+      "tokens": 100
+    }
+  ],
+  "usage5h": {
+    "percent": 0,
+    "tokensUsed": 5446,
+    "tokenBudget": 2000000,
+    "resetInMinutes": 180,
+    "blockStart": "2026-01-02T10:00:00.000Z",
+    "blockEnd": "2026-01-02T15:00:00.000Z",
+    "burnRatePerMin": 45,
+    "source": "estimate"
+  },
+  "today": {
+    "tokens": 1596,
+    "cacheWriteTokens": 3000,
+    "costUSD": 0.071616
+  }
+}

@@ -1,0 +1,8 @@
+{"type":"user","cwd":"/Users/test/projA","timestamp":"2026-01-02T10:00:00.000Z","message":{"role":"user","content":"hi"}}
+{"type":"assistant","cwd":"/Users/test/projA","timestamp":"2026-01-02T10:00:05.000Z","message":{"id":"msg_A1","model":"claude-opus-4-8[1m]","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":2000,"cache_read_input_tokens":5000}}}
+{"type":"assistant","cwd":"/Users/test/projA","timestamp":"2026-01-02T10:00:06.000Z","message":{"id":"msg_A1","model":"claude-opus-4-8[1m]","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":2000,"cache_read_input_tokens":5000}}}
+{"type":"assistant","cwd":"/Users/test/projA","timestamp":"2026-01-02T10:00:07.000Z","message":{"id":"msg_A1","model":"claude-opus-4-8[1m]","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":2000,"cache_read_input_tokens":5000}}}
+not valid json {{{
+
+{"type":"assistant","timestamp":"2026-01-02T10:05:00.000Z","message":{"id":"msg_A2","model":"claude-opus-4-8-20260115","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":300,"ephemeral_1h_input_tokens":700}}}}
+{"type":"assistant","timestamp":"2026-01-02T10:06:00.000Z","message":{"id":"msg_A3","model":"claude-opus-4-8[1m]"}}
