@@ -6,6 +6,7 @@ import AgentsHUDCore
 /// connected (WiFi) dials below. Firmware update actions live here too.
 struct DevicesView: View {
     @ObservedObject var provisioner: BLEProvisioner
+    @ObservedObject var serialProvisioner: SerialProvisioner
     @ObservedObject var server: ServerController
     @ObservedObject var updater: FirmwareUpdater
 
@@ -20,6 +21,8 @@ struct DevicesView: View {
             connectedSection
             Divider()
             provisionSection
+            Divider()
+            usbProvisionSection
             Divider()
             firmwareSection
         }
@@ -167,6 +170,75 @@ struct DevicesView: View {
         }
     }
 
+    // MARK: - USB serial provisioning (boards without Bluetooth, e.g. ESP8266)
+
+    private var usbProvisionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("USB 配网（无蓝牙设备，如小电视）").font(.headline)
+            if serialPorts.isEmpty {
+                Text("未发现 USB 串口，请用数据线连接设备")
+                    .font(.system(size: 12)).foregroundColor(.secondary)
+            } else {
+                Picker("串口", selection: $selectedPort) {
+                    ForEach(serialPorts) { port in
+                        Text(port.path).tag(port.path)
+                    }
+                }
+                .pickerStyle(.menu)
+                TextField("WiFi 名称（2.4GHz）", text: $ssid)
+                SecureField("WiFi 密码", text: $password)
+                HStack {
+                    Button("通过 USB 配网") {
+                        serialProvisioner.provision(
+                            portPath: selectedPort, ssid: ssid, password: password,
+                            payloadFrom: server
+                        )
+                    }
+                    .disabled(ssid.isEmpty || selectedPort.isEmpty || serialBusy)
+                    if serialBusy {
+                        Button("取消") { serialProvisioner.cancel() }
+                    }
+                    Spacer()
+                }
+            }
+            serialPhaseLabel
+        }
+    }
+
+    private var serialBusy: Bool {
+        switch serialProvisioner.phase {
+        case .opening, .probing, .sending, .deviceStatus: return true
+        default: return false
+        }
+    }
+
+    @ViewBuilder
+    private var serialPhaseLabel: some View {
+        if let info = serialProvisioner.info {
+            Text("设备：\(BoardRegistry.spec(for: info.board)?.displayName ?? info.board) · \(info.id) · 固件 v\(info.firmware)")
+                .font(.system(size: 11)).foregroundColor(.secondary)
+        }
+        switch serialProvisioner.phase {
+        case .idle:
+            EmptyView()
+        case .opening:
+            progress("打开串口…")
+        case .probing:
+            progress("识别设备…")
+        case .sending:
+            progress("下发 WiFi 配置…")
+        case let .deviceStatus(st, ip):
+            progress(statusText(st, ip: ip))
+        case let .done(ip):
+            Label(ip.isEmpty ? "配网成功，设备已连上服务" : "配网成功（\(ip)），设备已连上服务",
+                  systemImage: "checkmark.circle.fill")
+                .foregroundColor(.green).font(.system(size: 12))
+        case let .failed(msg):
+            Label(msg, systemImage: "xmark.circle.fill")
+                .foregroundColor(.red).font(.system(size: 12))
+        }
+    }
+
     // MARK: - Firmware update (USB)
 
     private var firmwareSection: some View {
@@ -275,6 +347,7 @@ struct DevicesView: View {
 final class DevicesWindowController {
     private var window: NSWindow?
     private let provisioner = BLEProvisioner()
+    private let serialProvisioner = SerialProvisioner()
     private let updater = FirmwareUpdater()
 
     func show(server: ServerController) {
@@ -283,7 +356,10 @@ final class DevicesWindowController {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let view = DevicesView(provisioner: provisioner, server: server, updater: updater)
+        let view = DevicesView(
+            provisioner: provisioner, serialProvisioner: serialProvisioner,
+            server: server, updater: updater
+        )
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
         window.title = "设备"

@@ -30,3 +30,6 @@ android/.kotlin/
 
 # Fetched esptool binaries (scripts/fetch-esptool.sh) — not committed
 mac/Vendor/esptool/
+
+# PlatformIO build artifacts (esp8266)
+esp8266/.pio/

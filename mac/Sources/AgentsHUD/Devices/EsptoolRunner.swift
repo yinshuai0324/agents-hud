@@ -28,11 +28,13 @@ final class EsptoolRunner {
 
     private let chip: String
     private let chunkBytes: Int
+    private let before: String
     private let port: String
 
     init(board: BoardSpec, port: String) {
         chip = board.chip
         chunkBytes = board.flashChunkBytes
+        before = board.esptoolBefore
         self.port = port
     }
 
@@ -64,15 +66,21 @@ final class EsptoolRunner {
     func flash(parts: [Part], progress: @escaping Progress) throws {
         guard let esptool = Self.bundledEsptool() else { throw RunError.esptoolMissing }
 
-        // If a firmware is running, ask it to enter the ROM bootloader; then
-        // always connect with --before no_reset (opening the port can itself
-        // have bounced the device into download mode already).
-        progress(0.02, "请求设备进入下载模式…")
-        SerialPortLocator.requestDownloadMode(portPath: port)
-        Thread.sleep(forTimeInterval: 1.5)
+        // Boards without an auto-reset circuit (before == no_reset): ask the
+        // running firmware to enter the ROM bootloader via the console 'b'
+        // trick. Auto-reset boards let esptool toggle DTR/RTS itself.
+        if before == "no_reset" {
+            progress(0.02, "请求设备进入下载模式…")
+            SerialPortLocator.requestDownloadMode(portPath: port)
+            Thread.sleep(forTimeInterval: 1.5)
+        } else {
+            progress(0.02, "连接设备…")
+        }
 
-        // Probe the connection first.
-        _ = try run(esptool, ["flash_id"], allowFailure: false)
+        // Probe the connection first. --after no_reset keeps the chip in the
+        // bootloader — the default hard_reset would boot it back into the app
+        // right before we try to write.
+        _ = try run(esptool, ["--after", "no_reset", "flash_id"], allowFailure: false)
 
         // Build the write plan: whole small parts, chunked app image.
         var plan: [(offset: Int, file: URL, cleanup: Bool)] = []
@@ -143,7 +151,7 @@ final class EsptoolRunner {
             "--chip", chip,
             "--port", port,
             "--baud", "460800",
-            "--before", "no_reset",
+            "--before", before,
         ] + args
         let pipe = Pipe()
         task.standardOutput = pipe

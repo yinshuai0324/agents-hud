@@ -87,6 +87,25 @@ server（默认 `0.0.0.0:4317`）。本文件是 wire 契约的基准 —— 改
 流程：Mac 扫描（按 service UUID）→ 连接 → 读 `0005` → 写 `0003` → 跟随 `0004`
 通知直到 `ws_ok` / 失败码。`ws_ok` 后设备保留 BLE 约 10 秒随后关闭并释放内存。
 
+## 4b. USB 串口配网（无蓝牙的板子，如 ESP8266 小电视）
+
+115200 波特率，双向单行 JSON（设备启动日志等非 JSON 行忽略）。状态码与 BLE
+`0004` 完全一致，Mac 端两条通道共享判断逻辑。
+
+```jsonc
+// Mac → 设备
+{"t":"info?"}                                                   // 探测（确认是 AgentsHUD 固件）
+{"t":"prov","v":1,"ssid":"..","pw":"..","url":"ws://ip:4317","token":"..","name":".."}
+{"t":"reset"}                                                   // 清配网并重启
+
+// 设备 → Mac
+{"t":"info","board":"sdd154","fw":"0.2.0","id":"315D"}
+{"t":"st","st":"connecting|got_ip|ws_ok|bad_pass|ap_not_found|server_fail","ip":"192.168.1.42"}
+```
+
+另保留单字符控制台命令：`r` 重启、`p` 清配网重启（ESP32 板还有 `b` 进下载模式；
+NodeMCU 型自动复位电路的板子不需要 `b`，esptool 直接 `default_reset`）。
+
 ## 5. mDNS 重发现
 
 Mac App 通过 Bonjour 发布 `_agentshud._tcp`（SRV 指向 4317，TXT：`name`、`ver`）。

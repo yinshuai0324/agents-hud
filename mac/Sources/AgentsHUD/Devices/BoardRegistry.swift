@@ -14,6 +14,11 @@ struct BoardSpec {
     /// USB serial chunked-write size that survives this board's flaky CDC
     /// (esp32/README.md: the 1.75" board drops the port on long transfers).
     let flashChunkBytes: Int
+    /// How esptool should enter the bootloader:
+    ///  - "no_reset": firmware console 'b' trick first (USB-Serial-JTAG boards
+    ///    where opening the port can bounce the chip unpredictably)
+    ///  - "default_reset": classic DTR/RTS auto-reset circuit (NodeMCU-style)
+    let esptoolBefore: String
 }
 
 enum BoardRegistry {
@@ -23,7 +28,17 @@ enum BoardRegistry {
             displayName: "Waveshare 1.75\" 圆形 AMOLED",
             chip: "esp32s3",
             firmwareAsset: "agents-hud-%@-esp32-ws175.zip",
-            flashChunkBytes: 364 * 1024
+            flashChunkBytes: 364 * 1024,
+            esptoolBefore: "no_reset"
+        ),
+        BoardSpec(
+            id: "sdd154",
+            displayName: "小电视 1.54\" TFT (ESP8266)",
+            chip: "esp8266",
+            firmwareAsset: "agents-hud-%@-esp8266-sdd154.zip",
+            // CH340 link is stable; whole-image writes are fine (no chunking).
+            flashChunkBytes: 4 * 1024 * 1024,
+            esptoolBefore: "default_reset"
         ),
     ]
 
