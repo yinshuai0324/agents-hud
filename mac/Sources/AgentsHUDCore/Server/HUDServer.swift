@@ -273,11 +273,21 @@ struct DeviceWSHandler: WSMessageHandler {
             // Query params double as a hello so the device shows up even if
             // the explicit hello frame is lost.
             let idBox = LockedBox(initial: queryId)
+
+            // The send channel: lets the gateway push directed content
+            // (text/anim/cfg) to this specific device, not just snapshots.
+            @Sendable func rawSend(_ text: String) {
+                continuation.yield(.text(text))
+            }
             if !queryId.isEmpty {
                 gateway.upsert(id: queryId, board: queryBoard, firmware: queryFw, address: address)
+                gateway.attach(id: queryId, sender: rawSend)
             }
 
+            // Push a usage snapshot only while usage is enabled for this device.
             @Sendable func pushSnap(_ snap: Snapshot) {
+                let id = idBox.value
+                if !id.isEmpty, !gateway.shouldPushUsage(id: id) { return }
                 continuation.yield(.text(CompactSnapshot.json(from: snap, hostName: host)))
             }
 
@@ -301,6 +311,7 @@ struct DeviceWSHandler: WSMessageHandler {
                     if let hello = DeviceGateway.parseHello(text) {
                         idBox.value = hello.id
                         gateway.upsert(id: hello.id, board: hello.board, firmware: hello.fw, address: address)
+                        gateway.attach(id: hello.id, sender: rawSend)
                         continuation.yield(.text(gateway.hiMessage(serverVersion: serverVersion)))
                     }
                 }
@@ -312,7 +323,7 @@ struct DeviceWSHandler: WSMessageHandler {
                 heartbeat.cancel()
                 reader.cancel()
                 let id = idBox.value
-                if !id.isEmpty { gateway.remove(id: id) }
+                if !id.isEmpty { gateway.detach(id: id) }
             }
         }
     }

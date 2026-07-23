@@ -3,9 +3,9 @@ import SwiftUI
 import Combine
 import UserNotifications
 
-/// Owns the menu-bar status item: left-click toggles the panel popover,
-/// right-click (or control-click) opens a 刷新 / 退出 menu. No SwiftUI Scene is
-/// used (see main.swift) so the app never shows a stray window.
+/// A normal windowed desktop app (Dock icon + main window). The menu-bar status
+/// item is kept as a bonus quick-glance indicator, but the primary UI is the
+/// main window (概览 / 设备 / 设置).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -13,14 +13,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let client = SignalClient.shared
     private var iconObserver: AnyCancellable?
     private var serverObserver: AnyCancellable?
-    private let pairingWindow = PairingWindowController()
-    private let devicesWindow = DevicesWindowController()
+
+    // Shared device/update controllers, owned here so the main window and the
+    // menu-bar shortcuts operate on the same instances.
+    private let provisioner = BLEProvisioner()
+    private let serialProvisioner = SerialProvisioner()
+    private let firmwareUpdater = FirmwareUpdater()
+    private var mainWindow: MainWindowController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if runRenderIconIfRequested() { return }
         if runRenderTestIfRequested() { return }
-        NSApp.setActivationPolicy(.accessory) // menu-bar only: no Dock icon, no window
 
+        // Regular app: Dock icon, ⌘Tab, standard menu bar.
+        NSApp.setActivationPolicy(.regular)
+        buildMainMenu()
+
+        // Menu-bar status item (optional quick glance; the window is primary).
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
         if let button = item.button {
@@ -33,6 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let content = PanelView(client: client)
             .clipShape(RoundedRectangle(cornerRadius: 12))
         menuPanel = MenuBarPanel(content: content)
+
+        mainWindow = MainWindowController(
+            client: client,
+            server: ServerController.shared,
+            provisioner: provisioner,
+            serialProvisioner: serialProvisioner,
+            updater: firmwareUpdater
+        )
 
         // Session-state notifications (轮到你 / 审批 / 出错). Only from a real
         // bundle — skip in `swift run` so it doesn't crash.
@@ -57,7 +74,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             Task { @MainActor in self.updateStatusIcon() }
         }
+
+        // Show the main window on launch.
+        mainWindow.show()
     }
+
+    // Reopen (Dock click / `open` again) refocuses the main window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        mainWindow.show()
+        return true
+    }
+
+    // MARK: - Main menu (built manually — no storyboard)
+
+    private func buildMainMenu() {
+        let mainMenu = NSMenu()
+
+        // App menu.
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "关于 AgentsHUD", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        if UpdaterController.shared.isAvailable {
+            let u = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
+            u.target = self
+            appMenu.addItem(u)
+        }
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "隐藏 AgentsHUD", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "退出 AgentsHUD", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+
+        // Window menu.
+        let winItem = NSMenuItem()
+        mainMenu.addItem(winItem)
+        let winMenu = NSMenu(title: "窗口")
+        winItem.submenu = winMenu
+        let showMain = NSMenuItem(title: "主窗口", action: #selector(showMainWindow), keyEquivalent: "0")
+        showMain.target = self
+        winMenu.addItem(showMain)
+        winMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        winMenu.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        NSApp.windowsMenu = winMenu
+
+        NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func showMainWindow() { mainWindow.show() }
 
     private func updateStatusIcon() {
         statusItem.button?.image = statusBarImage(dominant: client.dominant, dim: client.blinkDim)
@@ -70,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if rightClick {
             showContextMenu()
         } else {
+            // Left-click the menu-bar icon shows the quick usage overview popover.
             guard let button = statusItem.button else { return }
             menuPanel.toggle(below: button)
         }
@@ -77,32 +141,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showContextMenu() {
         let menu = NSMenu()
+        let open = NSMenuItem(title: "打开主窗口", action: #selector(showMainWindow), keyEquivalent: "")
+        open.target = self
         let notify = NSMenuItem(title: "通知", action: #selector(toggleNotifications), keyEquivalent: "")
         notify.target = self
         notify.state = Notifier.shared.enabled ? .on : .off
-        let pair = NSMenuItem(title: "连接手机…", action: #selector(showPairingQR), keyEquivalent: "")
-        pair.target = self
-        let devices = NSMenuItem(title: "设备…", action: #selector(showDevices), keyEquivalent: "")
-        devices.target = self
-        let hooks = NSMenuItem(
-            title: ServerController.shared.hooksInstalled ? "重新安装 Claude Code 钩子" : "安装 Claude Code 钩子",
-            action: #selector(installHooksAction),
-            keyEquivalent: ""
-        )
-        hooks.target = self
         let refresh = NSMenuItem(title: "刷新", action: #selector(refreshAction), keyEquivalent: "")
         refresh.target = self
         let quit = NSMenuItem(title: "退出", action: #selector(quitAction), keyEquivalent: "q")
         quit.target = self
+        menu.addItem(open)
         menu.addItem(notify)
-        menu.addItem(pair)
-        menu.addItem(devices)
-        menu.addItem(hooks)
-        if UpdaterController.shared.isAvailable {
-            let update = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: "")
-            update.target = self
-            menu.addItem(update)
-        }
         menu.addItem(.separator())
         menu.addItem(refresh)
         menu.addItem(quit)
@@ -114,34 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleNotifications() { Notifier.shared.enabled.toggle() }
     @objc private func refreshAction() { client.reconnect() }
     @objc private func quitAction() { NSApplication.shared.terminate(nil) }
-
-    @objc private func showPairingQR() {
-        pairingWindow.show(payload: ServerController.shared.pairingPayload)
-    }
-
-    @objc private func checkForUpdates() {
-        UpdaterController.shared.checkForUpdates()
-    }
-
-    @objc private func showDevices() {
-        devicesWindow.show(server: ServerController.shared)
-    }
-
-    @objc private func installHooksAction() {
-        let alert = NSAlert()
-        do {
-            let result = try ServerController.shared.installHooks()
-            alert.messageText = "钩子已安装"
-            var info = "已写入 \(result.settingsPath)\n重启运行中的 Claude Code 会话后生效。"
-            if let warning = result.statuslineWarning { info += "\n\n\(warning)" }
-            alert.informativeText = info
-        } catch {
-            alert.messageText = "钩子安装失败"
-            alert.informativeText = String(describing: error)
-            alert.alertStyle = .warning
-        }
-        alert.runModal()
-    }
+    @objc private func checkForUpdates() { UpdaterController.shared.checkForUpdates() }
 
     private func showPortConflictAlert() {
         let alert = NSAlert()
@@ -165,15 +187,13 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound])
     }
 
-    // Clicking a notification opens the panel.
+    // Clicking a notification brings up the main window.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        Task { @MainActor in
-            if let button = self.statusItem.button { self.menuPanel.show(below: button) }
-        }
+        Task { @MainActor in self.mainWindow.show() }
         completionHandler()
     }
 }

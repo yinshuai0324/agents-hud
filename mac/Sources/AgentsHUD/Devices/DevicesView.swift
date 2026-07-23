@@ -15,48 +15,73 @@ struct DevicesView: View {
     @State private var password: String = ""
     @State private var serialPorts: [SerialPortLocator.Port] = []
     @State private var selectedPort: String = ""
+    /// Which online device's control panel is expanded.
+    @State private var selectedControlId: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            connectedSection
-            Divider()
-            provisionSection
-            Divider()
-            usbProvisionSection
-            Divider()
-            firmwareSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                connectedSection
+                Divider().overlay(CC.cardBorder)
+                provisionSection
+                Divider().overlay(CC.cardBorder)
+                usbProvisionSection
+                Divider().overlay(CC.cardBorder)
+                firmwareSection
+            }
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(20)
-        .frame(width: 420)
+        .background(CC.bgBottom)
         .onAppear { refreshPorts() }
     }
 
-    // MARK: - Connected over WiFi
+    // MARK: - Connected over WiFi + control
 
     private var connectedSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("已连接设备").font(.headline)
             if server.devices.isEmpty {
-                Text("暂无设备通过 WiFi 连接")
+                Text("暂无设备通过 WiFi 连接（先在下方配网）")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             } else {
                 ForEach(server.devices) { dev in
-                    HStack {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 8))
-                            .foregroundColor(.green)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(BoardRegistry.spec(for: dev.board)?.displayName ?? dev.board) · \(dev.id)")
-                                .font(.system(size: 13, weight: .medium))
-                            Text("固件 v\(dev.firmware) · \(dev.address)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                    }
+                    deviceRow(dev)
+                }
+                if let selected = selectedControlId,
+                   let dev = server.devices.first(where: { $0.id == selected }) {
+                    ControlPanel(device: dev, server: server)
+                        .padding(.top, 4)
                 }
             }
+        }
+    }
+
+    private func deviceRow(_ dev: DeviceInfo) -> some View {
+        let selected = selectedControlId == dev.id
+        return HStack {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 8))
+                .foregroundColor(dev.online ? .green : .secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(BoardRegistry.spec(for: dev.board)?.displayName ?? dev.board) · \(dev.id)")
+                    .font(.system(size: 13, weight: .medium))
+                Text("固件 v\(dev.firmware) · \(dev.address)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Image(systemName: selected ? "chevron.down" : "slider.horizontal.3")
+                .foregroundColor(.secondary)
+        }
+        .padding(10)
+        .background(selected ? CC.card : Color.clear)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(CC.cardBorder, lineWidth: selected ? 1 : 0))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedControlId = selected ? nil : dev.id
         }
     }
 
