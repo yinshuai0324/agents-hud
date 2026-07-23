@@ -27,7 +27,16 @@ static bool s_reportedWsOk = false;
 static Snapshot s_snap;
 static bool s_haveData = false;
 
+// Pushed text card.
+static char s_textTitle[64] = "";
+static char s_textBody[256] = "";
+static bool s_textActive = false;
+static uint32_t s_textUntilMs = 0; // 0 = no auto-expiry (hold until replaced)
+
 const char *netDeviceId() { return s_deviceId; }
+bool netTextActive() { return s_textActive; }
+const char *netTextTitle() { return s_textTitle; }
+const char *netTextBody() { return s_textBody; }
 NetState s_state = NET_PROVISIONING;
 NetState netState() { return s_state; }
 const Snapshot &netSnapshot() { return s_snap; }
@@ -35,12 +44,26 @@ bool netHaveData() { return s_haveData; }
 
 // ---------------------------------------------------------------- payload
 
+// Returns true when a text card was consumed (display should switch to it).
+static bool handleText(JsonDocument &doc) {
+    strlcpy(s_textTitle, doc["title"] | "", sizeof(s_textTitle));
+    strlcpy(s_textBody, doc["body"] | "", sizeof(s_textBody));
+    long long hold = doc["hold"] | 0LL;
+    s_textActive = true;
+    s_textUntilMs = hold > 0 ? (millis() + (uint32_t)hold * 1000) : 0;
+    return true;
+}
+
+// Routes a /device frame by "t". Returns true if it was usable data.
 static bool parseSnap(const char *body) {
     // ~300B payload; 768 leaves headroom for long model/plan strings.
     StaticJsonDocument<768> doc;
     if (deserializeJson(doc, body) != DeserializationError::Ok) return false;
     const char *t = doc["t"] | "";
+    if (strcmp(t, "text") == 0) return handleText(doc);
     if (t[0] != '\0' && strcmp(t, "snap") != 0) return false; // hi/anim/... ignored
+    // A fresh usage snapshot clears any text card that had no auto-expiry only
+    // if the card has expired; otherwise the card stays until hold elapses.
     memset(&s_snap, 0, sizeof(s_snap));
     s_snap.u5hPercent = doc["p5"] | 0;
     s_snap.u5hResetMin = doc["r5"] | 0;
@@ -191,6 +214,11 @@ void netLoop() {
 
     if (s_wsStarted) s_ws.loop();
     if (wasConnected) MDNS.update();
+
+    // Expire a held text card.
+    if (s_textActive && s_textUntilMs != 0 && (int32_t)(millis() - s_textUntilMs) >= 0) {
+        s_textActive = false;
+    }
 
     if (!s_haveCfg) {
         s_state = NET_PROVISIONING;

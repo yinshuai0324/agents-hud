@@ -39,6 +39,12 @@ const char *netDeviceId();
 void netBegin();
 void netLoop();
 
+// Pushed text card ({"t":"text",...}). While active, the UI shows the card
+// instead of the usage page; a non-zero hold auto-reverts after N seconds.
+bool netTextActive();
+const char *netTextTitle();
+const char *netTextBody();
+
 // Apply freshly provisioned credentials (called from prov.cpp).
 void netApplyConfig(const ProvConfig &cfg);
 

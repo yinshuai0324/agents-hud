@@ -39,12 +39,11 @@ static void fmtReset(int minutes, char *out, size_t cap) {
     else snprintf(out, cap, "%dm", minutes);
 }
 
-void uiBegin() {
-    tft.init();
-    tft.setRotation(0);
-    tft.fillScreen(COL_BG);
+// Set true when a full-screen takeover (text card) wiped the usage chrome, so
+// the next uiShowText/uiEnterUsage forces a full redraw.
+static bool s_forceText = false;
 
-    // Static chrome.
+static void drawUsageChrome() {
     tft.setTextColor(COL_DIM, COL_BG);
     tft.setTextDatum(TL_DATUM);
     tft.drawString("AgentsHUD", 12, 8, 2);
@@ -56,6 +55,20 @@ void uiBegin() {
     tft.drawFastHLine(0, 206, 240, COL_PANEL);
 }
 
+void uiBegin() {
+    tft.init();
+    tft.setRotation(0);
+    tft.fillScreen(COL_BG);
+    drawUsageChrome();
+}
+
+// Redraw the usage page background/chrome (call when returning from a text card).
+void uiEnterUsage() {
+    tft.fillScreen(COL_BG);
+    drawUsageChrome();
+    s_forceText = true; // next text entry must redraw over usage
+}
+
 // Progress bar with rounded-ish ends, erases stale fill.
 static void drawBar(int x, int y, int w, int h, int percent, uint16_t color) {
     if (percent < 0) percent = 0;
@@ -64,6 +77,58 @@ static void drawBar(int x, int y, int w, int h, int percent, uint16_t color) {
     tft.drawRect(x, y, w, h, COL_BAR_BG);
     tft.fillRect(x + 1, y + 1, fill, h - 2, color);
     tft.fillRect(x + 1 + fill, y + 1, (w - 2) - fill, h - 2, COL_PANEL);
+}
+
+// Word-wrapped full-screen text card. Redraws whole screen (called only on
+// change from main), so no padding tricks needed.
+void uiShowText(const char *title, const char *body) {
+    static char lastTitle[64] = "\x01";
+    static char lastBody[256] = "\x01";
+    if (!s_forceText && strcmp(title, lastTitle) == 0 && strcmp(body, lastBody) == 0) return;
+    s_forceText = false;
+    strlcpy(lastTitle, title, sizeof(lastTitle));
+    strlcpy(lastBody, body, sizeof(lastBody));
+
+    tft.fillScreen(COL_BG);
+    tft.drawRect(0, 0, 240, 240, COL_ACCENT);
+    tft.drawRect(1, 1, 238, 238, COL_ACCENT);
+
+    tft.setTextDatum(TC_DATUM);
+    if (title[0]) {
+        tft.setTextColor(COL_ACCENT, COL_BG);
+        tft.drawString(title, 120, 18, 4);
+    }
+
+    // Greedy word wrap in font 4 (~14px wide glyphs -> ~15 chars/line at 216px).
+    tft.setTextColor(COL_TEXT, COL_BG);
+    tft.setTextDatum(TL_DATUM);
+    const int maxCharsPerLine = 15;
+    int y = title[0] ? 64 : 40;
+    char line[32] = "";
+    int lineLen = 0;
+    const char *p = body;
+    while (*p && y < 220) {
+        // grab next token (word) up to space
+        const char *sp = strchr(p, ' ');
+        int wordLen = sp ? (int)(sp - p) : (int)strlen(p);
+        if (wordLen > maxCharsPerLine) wordLen = maxCharsPerLine;
+        if (lineLen > 0 && lineLen + 1 + wordLen > maxCharsPerLine) {
+            tft.drawString(line, 14, y, 4);
+            y += 30;
+            line[0] = '\0';
+            lineLen = 0;
+        }
+        if (lineLen > 0) { line[lineLen++] = ' '; line[lineLen] = '\0'; }
+        strncat(line, p, wordLen);
+        lineLen += wordLen;
+        p += wordLen;
+        while (*p == ' ') p++;
+    }
+    if (lineLen > 0 && y < 226) tft.drawString(line, 14, y, 4);
+
+    tft.setTextDatum(BC_DATUM);
+    tft.setTextColor(COL_DIM, COL_BG);
+    tft.drawString(netDeviceId(), 120, 232, 2);
 }
 
 void uiUpdate(NetState state, const Snapshot &snap, bool haveData) {

@@ -20,9 +20,17 @@ void loop() {
     netLoop();
 
     static uint32_t lastDraw = 0;
+    static bool prevText = false;
     if (millis() - lastDraw >= 250) {
         lastDraw = millis();
-        uiUpdate(netState(), netSnapshot(), netHaveData());
+        if (netTextActive()) {
+            uiShowText(netTextTitle(), netTextBody());
+            prevText = true;
+        } else {
+            if (prevText) uiEnterUsage(); // returning from a text card
+            prevText = false;
+            uiUpdate(netState(), netSnapshot(), netHaveData());
+        }
     }
     delay(2);
 }
