@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Embedded server first (data source), then the UI's local WS client.
         ServerController.shared.start()
         client.start()
+        DeviceScheduler.shared.start()
         UpdaterController.shared.setup()
 
         // Surface a port conflict (old brew service still running) once.
