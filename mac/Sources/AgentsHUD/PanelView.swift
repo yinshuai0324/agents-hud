@@ -150,10 +150,10 @@ struct VisualEffectBackground: NSViewRepresentable {
         view.state = .active
         // Lock to dark so the frosted glass stays dark on a light desktop,
         // keeping the light HUD text readable.
-        view.appearance = NSAppearance(named: .darkAqua)
+        view.appearance = NSAppearance(named: .aqua)
         return view
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.appearance = NSAppearance(named: .darkAqua)
+        nsView.appearance = NSAppearance(named: .aqua)
     }
 }

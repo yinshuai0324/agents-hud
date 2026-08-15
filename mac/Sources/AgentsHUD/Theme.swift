@@ -1,30 +1,29 @@
 import SwiftUI
 import AppKit
 
-/// Palette tuned to the reference screenshot (deep navy background, vivid lamps).
-/// Ported from `android/.../ui/theme/Theme.kt` so the Mac panel matches 1:1.
+/// Desktop & HUD palette; status colors stay vivid while surfaces and text use
+/// macOS semantic colors that seamlessly adapt to light and dark mode.
 enum CC {
-    static let bgTop = Color(hex: 0x0A0E1A)
-    static let bgBottom = Color(hex: 0x05070D)
-    static let card = Color.white.opacity(0.10)
-    static let cardBorder = Color(hex: 0x1E2636)
-    // Dark chip for status tags so bright colored text reads on the frosted glass.
-    static let chip = Color.black.opacity(0.30)
+    static let bgTop = Color(nsColor: .windowBackgroundColor)
+    static let bgBottom = Color(nsColor: .windowBackgroundColor)
+    static let card = Color(nsColor: .controlBackgroundColor)
+    static let cardBorder = Color(nsColor: .separatorColor)
+    static let separator = Color(hex: 0xD1D1D6)
+    static let chip = Color(nsColor: .quaternaryLabelColor)
     static let red = Color(hex: 0xFF453A)       // 出错 error
     static let orange = Color(hex: 0xFF9F0A)     // 审批 notify
-    static let blue = Color(hex: 0x3B9EFF)       // 等候 waiting
-    static let yellow = Color(hex: 0xFFC42E)     // 工作 working
-    static let green = Color(hex: 0x34C759)      // 空闲 quiet
+    static let blue = Color(hex: 0x0A84FF)       // 等候 waiting
+    static let yellow = Color(hex: 0xFFD60A)     // 工作 working
+    static let green = Color(hex: 0x30D158)      // 空闲 quiet
     // Translucent chips/tints — brand color at low alpha so they read as frosted
-    // glass over the blurred backdrop rather than opaque blobs.
+    // glass over the backdrop rather than opaque blobs.
     static let redDim = Color(hex: 0xFF453A).opacity(0.22)
-    static let yellowDim = Color(hex: 0xFFC42E).opacity(0.22)
-    static let greenDim = Color(hex: 0x34C759).opacity(0.22)
-    // White-based text tiers harmonize with any blurred background (vibrancy look).
-    static let textPrimary = Color.white.opacity(0.95)
-    static let textSecondary = Color.white.opacity(0.60)
-    static let textFaint = Color.white.opacity(0.40)
-    static let track = Color.white.opacity(0.15)
+    static let yellowDim = Color(hex: 0xFFD60A).opacity(0.22)
+    static let greenDim = Color(hex: 0x30D158).opacity(0.22)
+    static let textPrimary = Color(nsColor: .labelColor)
+    static let textSecondary = Color(nsColor: .secondaryLabelColor)
+    static let textFaint = Color(nsColor: .tertiaryLabelColor)
+    static let track = Color(nsColor: .separatorColor)
 }
 
 /// The signal color for each session state. Single source of truth for the UI.
