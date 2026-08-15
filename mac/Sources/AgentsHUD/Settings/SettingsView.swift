@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 import AgentsHUDCore
 
-/// Settings tab: embedded server status, Claude Code hooks, phone pairing QR,
-/// and app updates.
+/// Settings tab: embedded server status, local agent data sources, phone pairing
+/// QR, and app updates.
 struct SettingsView: View {
     @ObservedObject var server: ServerController
     @ObservedObject var client: SignalClient
@@ -17,6 +17,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 serverCard
                 hooksCard
+                codexCard
                 pairingCard
                 updatesCard
             }
@@ -99,6 +100,28 @@ struct SettingsView: View {
             hookMessage = "已移除钩子与 statusLine。"
         } catch {
             hookMessage = "卸载失败：\(error.localizedDescription)"
+        }
+    }
+
+    // MARK: Codex local data
+
+    private var codexCard: some View {
+        let available = FileManager.default.fileExists(atPath: server.config.codexSessionsDir)
+        return card("Codex 本地数据") {
+            Text("自动读取本机 Codex 已保存的会话、Token、模型、上下文和额度记录；不读取登录凭据，也不调用 OpenAI API。")
+                .font(.system(size: 12)).foregroundColor(CC.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text(server.config.codexSessionsDir)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(CC.textFaint)
+                    .lineLimit(1).truncationMode(.middle)
+                    .textSelection(.enabled)
+                Spacer()
+                Text(available ? "已发现" : "未发现")
+                    .font(.system(size: 12))
+                    .foregroundColor(available ? CC.green : CC.textFaint)
+            }
         }
     }
 

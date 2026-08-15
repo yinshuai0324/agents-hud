@@ -12,7 +12,9 @@ public enum CompactSnapshot {
             ("r5", snap.usage5h.resetInMinutes),
             ("tt", snap.today.tokens),
             ("bu", snap.usage5h.burnRatePerMin),
-            ("lv", snap.usage5h.source == "live" ? 1 : 0),
+            // Both Claude statusLine values (live) and Codex transcript values
+            // (local) are exact provider-reported quotas.
+            ("lv", snap.usage5h.source == "estimate" ? 0 : 1),
             ("w", snap.status.working),
             ("n", snap.status.notify),
             ("wa", snap.status.waiting),
@@ -22,6 +24,7 @@ public enum CompactSnapshot {
             ("d", snap.status.dominant.rawValue),
             ("m", String(snap.model.prefix(24))),
             ("pl", String(snap.plan.prefix(24))),
+            ("pr", String(snap.provider.prefix(12))),
             ("h", String(hostName.prefix(23))),
         ]
         if let u7 = snap.usage7d {

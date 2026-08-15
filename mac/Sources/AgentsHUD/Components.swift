@@ -48,6 +48,47 @@ func lastUpdatedLabel(_ ts: String, now: Date) -> String {
 
 // MARK: - Small views
 
+func providerDisplayName(_ provider: String) -> String {
+    switch provider.lowercased() {
+    case "claude": return "Claude"
+    case "codex": return "Codex"
+    case "gemini": return "Gemini"
+    default: return provider.capitalized
+    }
+}
+
+/// Compact, visually distinct platform mark used anywhere usage sources appear.
+struct ProviderIcon: View {
+    let provider: String
+    var size: CGFloat = 24
+
+    private var color: Color {
+        switch provider.lowercased() {
+        case "codex": return Color(red: 0.20, green: 0.62, blue: 0.46)
+        case "gemini": return Color(red: 0.30, green: 0.48, blue: 0.92)
+        default: return CC.orange
+        }
+    }
+
+    private var symbol: String {
+        switch provider.lowercased() {
+        case "codex": return "terminal.fill"
+        case "gemini": return "diamond.fill"
+        default: return "sparkles"
+        }
+    }
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.48, weight: .semibold))
+            .foregroundColor(.white)
+            .frame(width: size, height: size)
+            .background(color)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+            .accessibilityLabel(providerDisplayName(provider))
+    }
+}
+
 /// A rounded tag, like the plan / live badges in UsageBar.kt.
 struct Pill: View {
     let text: String

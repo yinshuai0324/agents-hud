@@ -109,19 +109,26 @@ public final class DeviceGateway: @unchecked Sendable {
         if id.isEmpty { return true }
         lock.lock()
         defer { lock.unlock() }
-        return !usageOff.contains(id)
+        guard let device = devices[id] else { return true }
+        return device.supports(.usageSnapshot) && !usageOff.contains(id)
     }
 
     // MARK: - Directed control (called from the app UI)
 
     /// Toggle the usage-snapshot stream for a device.
-    public func setUsageEnabled(_ enabled: Bool, id: String) {
-        guard !id.isEmpty else { return }
+    @discardableResult
+    public func setUsageEnabled(_ enabled: Bool, id: String) -> Bool {
+        guard !id.isEmpty else { return false }
         lock.lock()
+        guard let device = devices[id], device.supports(.usageSnapshot) else {
+            lock.unlock()
+            return false
+        }
         if enabled { usageOff.remove(id) } else { usageOff.insert(id) }
         if var d = devices[id] { d.usageEnabled = enabled; devices[id] = d }
         notifyLocked()
         lock.unlock()
+        return true
     }
 
     /// Send a raw JSON message to one device. Returns false if it's offline.
@@ -138,6 +145,10 @@ public final class DeviceGateway: @unchecked Sendable {
     /// usage view; 0 keeps it until the next message.
     @discardableResult
     public func sendText(to id: String, title: String, body: String, holdSeconds: Int = 0) -> Bool {
+        lock.lock()
+        let supportsText = devices[id]?.supports(.textCard) == true
+        lock.unlock()
+        guard supportsText else { return false }
         let msg = CompactSnapshot.encodeOrdered([
             ("t", "text"),
             ("title", title),
@@ -145,6 +156,39 @@ public final class DeviceGateway: @unchecked Sendable {
             ("hold", holdSeconds),
         ])
         return send(to: id, msg)
+    }
+
+    /// Dismiss the current text card immediately and return to the usage page.
+    /// This explicit command is used by start/end schedules; it avoids relying
+    /// on a long `hold` timer that can drift while the Mac sleeps.
+    @discardableResult
+    public func clearText(on id: String) -> Bool {
+        lock.lock()
+        let supportsText = devices[id]?.supports(.textCard) == true
+        lock.unlock()
+        guard supportsText else { return false }
+        return send(to: id, CompactSnapshot.encodeOrdered([
+            ("t", "text"),
+            ("clear", true),
+            // Backward compatibility: older text-capable firmware ignores
+            // `clear`, shows an empty card, then returns to usage after 1s.
+            ("title", ""),
+            ("body", ""),
+            ("hold", 1),
+        ]))
+    }
+
+    /// Keep networking alive while turning only the physical display on/off.
+    @discardableResult
+    public func setDisplayPower(_ on: Bool, id: String) -> Bool {
+        lock.lock()
+        let supported = devices[id]?.supports(.displayPower) == true
+        lock.unlock()
+        guard supported else { return false }
+        return send(to: id, CompactSnapshot.encodeOrdered([
+            ("t", "display"),
+            ("on", on),
+        ]))
     }
 
     /// Parse a device→server message; returns the hello fields when it is one.

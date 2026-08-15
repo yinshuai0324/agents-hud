@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import AgentsHUDCore
 
 /// Fetches firmware bundles from GitHub Releases and flashes them over USB.
 /// Release assets are produced by .github/workflows/esp32.yml:

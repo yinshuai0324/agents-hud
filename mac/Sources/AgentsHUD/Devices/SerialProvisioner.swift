@@ -7,6 +7,14 @@ import AgentsHUDCore
 ///   → {"t":"prov","v":1,"ssid":..,...}   ← {"t":"st","st":"connecting|got_ip|ws_ok|...","ip":..}
 @MainActor
 final class SerialProvisioner: ObservableObject {
+    struct DiscoveredDevice: Identifiable, Equatable, Sendable {
+        var id: String { portPath }
+        let portPath: String
+        let board: String
+        let firmware: String
+        let deviceId: String
+    }
+
     enum Phase: Equatable {
         case idle
         case opening
@@ -25,12 +33,55 @@ final class SerialProvisioner: ObservableObject {
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var info: DeviceInfo?
+    @Published private(set) var discoveredDevices: [DiscoveredDevice] = []
+    @Published private(set) var isDiscovering = false
 
-    private var task: Task<Void, Never>?
+    private var provisionTask: Task<Void, Never>?
+    private var discoveryTask: Task<Void, Never>?
+
+    /// Continuously watches USB serial ports while the provisioning sheet is
+    /// open. New ports are probed once with `info?`; only AgentsHUD firmware is
+    /// surfaced as a device, so users never have to choose a raw `/dev` path.
+    func startDiscovery() {
+        cancel()
+        stopDiscovery()
+        info = nil
+        discoveredDevices = []
+        isDiscovering = true
+        discoveryTask = Task.detached(priority: .utility) { [weak self] in
+            var attempted = Set<String>()
+            while !Task.isCancelled {
+                let ports = SerialPortLocator.ports()
+                let connectedPaths = Set(ports.map(\.path))
+                attempted.formIntersection(connectedPaths)
+                await self?.removeDisconnectedDevices(keeping: connectedPaths)
+
+                let candidates = ports.filter { !attempted.contains($0.path) }
+                attempted.formUnion(candidates.map(\.path))
+                await withTaskGroup(of: DiscoveredDevice?.self) { group in
+                    for port in candidates {
+                        group.addTask { await Self.probe(portPath: port.path) }
+                    }
+                    for await device in group {
+                        guard let device else { continue }
+                        await self?.addDiscoveredDevice(device)
+                    }
+                }
+
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
+    func stopDiscovery() {
+        discoveryTask?.cancel()
+        discoveryTask = nil
+        isDiscovering = false
+    }
 
     func cancel() {
-        task?.cancel()
-        task = nil
+        provisionTask?.cancel()
+        provisionTask = nil
         phase = .idle
     }
 
@@ -47,9 +98,49 @@ final class SerialProvisioner: ObservableObject {
             ("name", pairing.name),
         ])
         phase = .opening
-        task = Task.detached(priority: .userInitiated) { [weak self] in
+        provisionTask = Task.detached(priority: .userInitiated) { [weak self] in
             await self?.runFlow(portPath: portPath, provJson: provJson)
         }
+    }
+
+    private func addDiscoveredDevice(_ device: DiscoveredDevice) {
+        if let index = discoveredDevices.firstIndex(where: { $0.id == device.id }) {
+            discoveredDevices[index] = device
+        } else {
+            discoveredDevices.append(device)
+            discoveredDevices.sort { $0.deviceId < $1.deviceId }
+        }
+    }
+
+    private func removeDisconnectedDevices(keeping paths: Set<String>) {
+        discoveredDevices.removeAll { !paths.contains($0.portPath) }
+    }
+
+    nonisolated private static func probe(portPath: String) async -> DiscoveredDevice? {
+        guard let port = SerialLine(path: portPath) else { return nil }
+        defer { port.close() }
+
+        // Opening a NodeMCU-style USB serial port resets it. Wait for the app
+        // firmware to boot before sending the identity request.
+        try? await Task.sleep(nanoseconds: 1_800_000_000)
+        guard !Task.isCancelled else { return nil }
+
+        for _ in 0..<3 {
+            port.writeLine("{\"t\":\"info?\"}")
+            if let obj = await port.readJSONLine(
+                timeoutMs: 1_500,
+                where: { $0["t"] as? String == "info" }
+            ) {
+                return DiscoveredDevice(
+                    portPath: portPath,
+                    board: obj["board"] as? String ?? "",
+                    firmware: obj["fw"] as? String ?? "",
+                    deviceId: obj["id"] as? String ?? ""
+                )
+            }
+            guard !Task.isCancelled else { return nil }
+        }
+        return nil
     }
 
     private func setPhase(_ p: Phase) {

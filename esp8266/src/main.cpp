@@ -21,8 +21,14 @@ void loop() {
 
     static uint32_t lastDraw = 0;
     static bool prevText = false;
+    static bool prevDisplayOn = true;
     if (millis() - lastDraw >= 250) {
         lastDraw = millis();
+        const bool displayOn = netDisplayOn();
+        if (displayOn != prevDisplayOn) {
+            uiSetDisplayPower(displayOn);
+            prevDisplayOn = displayOn;
+        }
         if (netTextActive()) {
             uiShowText(netTextTitle(), netTextBody());
             prevText = true;

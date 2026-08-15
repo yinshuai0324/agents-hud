@@ -25,3 +25,6 @@ bool idle_consume_wake(void);
 
 /** Force the idle timeout to elapse now (console 'z', for testing). */
 void idle_force_sleep(void);
+
+/** Remote power policy. Disabled forces brightness to zero; enabling wakes. */
+void idle_set_display_enabled(bool enabled);

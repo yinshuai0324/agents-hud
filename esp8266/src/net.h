@@ -7,6 +7,7 @@
 // Parsed subset of the compact /device snapshot (see docs/PROTOCOL.md §3).
 // Field-for-field match with the esp32 firmware's ahud_snapshot_t.
 struct Snapshot {
+    char provider[12];
     char plan[32];
     char model[40];
     int u5hPercent;
@@ -44,6 +45,9 @@ void netLoop();
 bool netTextActive();
 const char *netTextTitle();
 const char *netTextBody();
+
+// Remote display-power policy ({"t":"display","on":true|false}).
+bool netDisplayOn();
 
 // Apply freshly provisioned credentials (called from prov.cpp).
 void netApplyConfig(const ProvConfig &cfg);

@@ -5,6 +5,7 @@
 
 /** Parsed subset of the AgentsHUD /api/snapshot payload the dial displays. */
 typedef struct {
+    char provider[12];
     char plan[32];
     char model[40];
     int u5h_percent;        // 0..100
