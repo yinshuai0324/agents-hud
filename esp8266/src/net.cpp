@@ -32,11 +32,13 @@ static char s_textTitle[64] = "";
 static char s_textBody[256] = "";
 static bool s_textActive = false;
 static uint32_t s_textUntilMs = 0; // 0 = no auto-expiry (hold until replaced)
+static bool s_displayOn = true;
 
 const char *netDeviceId() { return s_deviceId; }
 bool netTextActive() { return s_textActive; }
 const char *netTextTitle() { return s_textTitle; }
 const char *netTextBody() { return s_textBody; }
+bool netDisplayOn() { return s_displayOn; }
 NetState s_state = NET_PROVISIONING;
 NetState netState() { return s_state; }
 const Snapshot &netSnapshot() { return s_snap; }
@@ -46,11 +48,23 @@ bool netHaveData() { return s_haveData; }
 
 // Returns true when a text card was consumed (display should switch to it).
 static bool handleText(JsonDocument &doc) {
+    if (doc["clear"] | false) {
+        s_textActive = false;
+        s_textUntilMs = 0;
+        s_textTitle[0] = '\0';
+        s_textBody[0] = '\0';
+        return true;
+    }
     strlcpy(s_textTitle, doc["title"] | "", sizeof(s_textTitle));
     strlcpy(s_textBody, doc["body"] | "", sizeof(s_textBody));
     long long hold = doc["hold"] | 0LL;
     s_textActive = true;
     s_textUntilMs = hold > 0 ? (millis() + (uint32_t)hold * 1000) : 0;
+    return true;
+}
+
+static bool handleDisplay(JsonDocument &doc) {
+    s_displayOn = doc["on"] | true;
     return true;
 }
 
@@ -61,6 +75,7 @@ static bool parseSnap(const char *body) {
     if (deserializeJson(doc, body) != DeserializationError::Ok) return false;
     const char *t = doc["t"] | "";
     if (strcmp(t, "text") == 0) return handleText(doc);
+    if (strcmp(t, "display") == 0) return handleDisplay(doc);
     if (t[0] != '\0' && strcmp(t, "snap") != 0) return false; // hi/anim/... ignored
     // A fresh usage snapshot clears any text card that had no auto-expiry only
     // if the card has expired; otherwise the card stays until hold elapses.
@@ -78,6 +93,7 @@ static bool parseSnap(const char *body) {
     s_snap.sError = doc["e"] | 0;
     s_snap.sQuiet = doc["q"] | 0;
     s_snap.sTotal = doc["to"] | 0;
+    strlcpy(s_snap.provider, doc["pr"] | "", sizeof(s_snap.provider));
     strlcpy(s_snap.model, doc["m"] | "", sizeof(s_snap.model));
     strlcpy(s_snap.plan, doc["pl"] | "", sizeof(s_snap.plan));
     strlcpy(s_snap.host, doc["h"] | "", sizeof(s_snap.host));

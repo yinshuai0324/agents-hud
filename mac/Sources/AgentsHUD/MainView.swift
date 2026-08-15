@@ -7,7 +7,7 @@ final class MainNavigation: ObservableObject {
 }
 
 /// The desktop app's main window: genuine macOS Finder-style sidebar
-/// (设备 / 设置) using the system's native sidebar Source List.
+/// (设备 / 功能 / 设置) using the system's native sidebar Source List.
 struct MainView: View {
     private let sidebarWidth: CGFloat = 175
 
@@ -20,6 +20,7 @@ struct MainView: View {
 
     enum Section: String, CaseIterable, Identifiable, Hashable {
         case devices = "设备"
+        case functions = "功能"
         case settings = "设置"
 
         var id: String { rawValue }
@@ -27,6 +28,7 @@ struct MainView: View {
         var icon: String {
             switch self {
             case .devices: return "display"
+            case .functions: return "square.grid.2x2"
             case .settings: return "gearshape"
             }
         }
@@ -85,6 +87,8 @@ struct MainView: View {
                 server: server,
                 updater: updater
             )
+        case .functions:
+            FunctionsView(server: server)
         case .settings:
             SettingsView(server: server, client: client)
         }

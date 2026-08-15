@@ -19,6 +19,7 @@ final class ServerController: ObservableObject {
 
     @Published private(set) var status: Status = .stopped
     @Published private(set) var devices: [DeviceInfo] = []
+    @Published private(set) var enabledUsageProviders: Set<String>
 
     let config: Config
     let deviceGateway = DeviceGateway()
@@ -33,6 +34,7 @@ final class ServerController: ObservableObject {
 
     private init() {
         config = Config.load()
+        enabledUsageProviders = Self.loadEnabledUsageProviders()
     }
 
     var pairingPayload: PairingPayload {
@@ -44,7 +46,15 @@ final class ServerController: ObservableObject {
         status = .starting
         let cfg = config
 
-        let engine = StateEngine(cfg: cfg, providers: [ClaudeProvider(cfg: cfg)])
+        let engine = StateEngine(
+            cfg: cfg,
+            providers: [
+                ClaudeProvider(cfg: cfg),
+                CodexProvider(cfg: cfg),
+                GeminiProvider(cfg: cfg),
+            ],
+            enabledProviders: enabledUsageProviders
+        )
         self.engine = engine
         let server = HUDServer(
             cfg: cfg,
@@ -115,6 +125,50 @@ final class ServerController: ObservableObject {
 
     var hooksInstalled: Bool {
         HooksInstaller.isInstalled(cfg: config)
+    }
+
+    // MARK: Usage sources
+
+    private static let usageProviderOrder = ["claude", "codex", "gemini"]
+
+    private static func usageProviderKey(_ provider: String) -> String {
+        "usageProvider.\(provider).enabled"
+    }
+
+    private static func loadEnabledUsageProviders(defaults: UserDefaults = .standard) -> Set<String> {
+        var result = Set<String>()
+        for provider in usageProviderOrder {
+            let key = usageProviderKey(provider)
+            // New sources default to enabled. Once a value is written, honor it.
+            if defaults.object(forKey: key) == nil || defaults.bool(forKey: key) {
+                result.insert(provider)
+            }
+        }
+        return result.isEmpty ? Set(usageProviderOrder) : result
+    }
+
+    func isUsageProviderEnabled(_ provider: String) -> Bool {
+        enabledUsageProviders.contains(provider)
+    }
+
+    func canDisableUsageProvider(_ provider: String) -> Bool {
+        enabledUsageProviders.contains(provider) && enabledUsageProviders.count > 1
+    }
+
+    func setUsageProvider(_ provider: String, enabled: Bool) {
+        guard Self.usageProviderOrder.contains(provider) else { return }
+        var next = enabledUsageProviders
+        if enabled {
+            next.insert(provider)
+        } else {
+            guard next.count > 1 else { return }
+            next.remove(provider)
+        }
+        enabledUsageProviders = next
+        for item in Self.usageProviderOrder {
+            UserDefaults.standard.set(next.contains(item), forKey: Self.usageProviderKey(item))
+        }
+        engine?.setEnabledProviders(next)
     }
 
     /// True when something is already listening on the port (used to steer the

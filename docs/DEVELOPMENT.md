@@ -10,7 +10,9 @@
 | [`android/`](../android/) | Kotlin + Jetpack Compose App：扫码、WebSocket 客户端、全屏 HUD 面板 |
 | [`mac/`](../mac/) | Swift + SwiftUI 菜单栏 App：`MenuBarExtra` 悬浮窗，同机直连 `127.0.0.1:4317`（免配对），镜像 Android 面板 |
 
-数据层是可插拔的 `Provider`（`server/src/providers/`）。第一版聚焦 Claude Code；Gemini 等可作为第二个 provider 接入。
+数据层是可插拔的 `Provider`。macOS 内置服务目前支持 Claude Code、Codex 与 Gemini：Claude
+读取 `~/.claude`，Codex 只读 `~/.codex/sessions` 中已落盘的 rollout JSONL，Gemini 只读
+`~/.gemini` 下的 Gemini CLI / Antigravity 本地记录。Provider 不读取登录凭据，也不调用官方 API。
 
 ---
 
@@ -58,6 +60,8 @@ bash build-app.sh           # 编译并打包成 Agents-HUD.app（菜单栏常�
 | `CC_SIGNAL_WORKING_TIMEOUT_MS` | `90000` | 工作无新事件→等候 的超时 |
 | `CC_SIGNAL_DROP_AFTER_MS` | `21600000` | 超过此时长无活动的会话从列表移除 |
 | `CC_SIGNAL_CLAUDE_DIR` | `~/.claude` | Claude 数据目录 |
+| `CC_SIGNAL_CODEX_DIR` | `~/.codex` | Codex 本地数据目录 |
+| `CC_SIGNAL_GEMINI_DIR` | `~/.gemini` | Gemini 本地数据目录 |
 
 ---
 
@@ -160,4 +164,5 @@ scripts/release.sh patch --dry-run # 预览，不改动
 - [x] Android 应用内自动更新（每小时检测 Release 新版本 → 弹窗 → 下载安装）
 - [x] Mac 菜单栏 App（SwiftUI 状态项 + 毛玻璃面板，同机直连）+ CI 在 `v*` 标签产出通用 DMG
 - [x] Mac App 的 Developer ID 签名 + Apple 公证（CI 已接，配好 Secrets 即生效）
-- [ ] Gemini 等第二个 provider 接入
+- [x] Codex 本地数据 Provider（会话、Token、模型、上下文、额度窗口）
+- [x] Gemini 本地数据 Provider（Gemini CLI 精确 Token；Antigravity 本地活动发现）

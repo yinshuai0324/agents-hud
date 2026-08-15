@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Embedded server first (data source), then the UI's local WS client.
         ServerController.shared.start()
         client.start()
+        DisplayPowerController.shared.start()
         DeviceScheduler.shared.start()
         UpdaterController.shared.setup()
 
@@ -126,7 +127,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let devices = NSMenuItem(title: "设备", action: #selector(showDevicesPage), keyEquivalent: "1")
         devices.target = self
         viewMenu.addItem(devices)
-        let settings = NSMenuItem(title: "设置", action: #selector(showSettingsPage), keyEquivalent: "2")
+        let functions = NSMenuItem(title: "功能", action: #selector(showFunctionsPage), keyEquivalent: "2")
+        functions.target = self
+        viewMenu.addItem(functions)
+        let settings = NSMenuItem(title: "设置", action: #selector(showSettingsPage), keyEquivalent: "3")
         settings.target = self
         viewMenu.addItem(settings)
 
@@ -135,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showMainWindow() { mainWindow.show() }
     @objc private func showDevicesPage() { mainWindow.show(select: .devices) }
+    @objc private func showFunctionsPage() { mainWindow.show(select: .functions) }
     @objc private func showSettingsPage() { mainWindow.show(select: .settings) }
 
     private func updateStatusIcon() {

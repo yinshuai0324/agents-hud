@@ -75,42 +75,87 @@ struct PanelView: View {
     // MARK: Usage section (ported from UsageBar.kt)
 
     private var usageSection: some View {
-        let snap = client.snapshot
-        let live = snap?.usage5h.source == "live"
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(displayedProviderUsage) { usage in
+                providerUsageCard(usage)
+            }
+        }
+    }
+
+    private var displayedProviderUsage: [ProviderUsage] {
+        guard let snap = client.snapshot else { return [] }
+        if !snap.providers.isEmpty { return snap.providers }
+        // Backward compatibility with older servers that only send top-level data.
+        var fallback = ProviderUsage()
+        fallback.provider = snap.provider
+        fallback.plan = snap.plan
+        fallback.model = snap.model
+        fallback.usage5h = snap.usage5h
+        fallback.usage7d = snap.usage7d
+        fallback.today = snap.today
+        return [fallback]
+    }
+
+    private func providerUsageCard(_ usage: ProviderUsage) -> some View {
+        let exact = usage.usage5h.source != "estimate"
+        let active = usage.provider == client.snapshot?.provider
         return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("您的套餐信息").font(.system(size: 13, weight: .medium)).foregroundColor(CC.textSecondary)
-                if let plan = snap?.plan, !plan.isEmpty { Pill(text: plan) }
+            HStack(spacing: 8) {
+                ProviderIcon(provider: usage.provider, size: 28)
+                Text(providerDisplayName(usage.provider))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(CC.textPrimary)
+                if active { Pill(text: "当前", fg: CC.green, bg: CC.chip) }
+                if !usage.plan.isEmpty { Pill(text: usage.plan) }
                 Spacer()
-                Pill(
-                    text: live ? "实时" : "等待上报",
-                    fg: live ? CC.green : CC.textFaint,
-                    bg: CC.chip
-                )
+                Pill(text: sourceLabel(usage.usage5h.source), fg: exact ? CC.green : CC.textFaint, bg: CC.chip)
             }
 
-            if live, let u = snap?.usage5h {
-                UsageRow(label: "5 小时", percent: u.percent, resetMin: u.resetInMinutes, big: true)
+            if exact {
+                UsageRow(
+                    label: "5 小时",
+                    percent: usage.usage5h.percent,
+                    resetMin: usage.usage5h.resetInMinutes,
+                    big: false
+                )
                     .padding(.top, 10)
-                if let w = snap?.usage7d {
-                    UsageRow(label: "7 天", percent: w.percent, resetMin: w.resetInMinutes, big: false)
-                        .padding(.top, 10)
-                }
             } else {
-                Text("5 小时 / 7 天用量 · 等待 statusLine 上报…")
+                Text(usage.provider == "claude"
+                    ? "5 小时额度 · 等待 statusLine 上报…"
+                    : "5 小时额度未写入本地记录")
                     .font(.system(size: 13)).foregroundColor(CC.textFaint).padding(.top, 10)
             }
+            if let w = usage.usage7d {
+                UsageRow(label: "7 天", percent: w.percent, resetMin: w.resetInMinutes, big: false)
+                    .padding(.top, 10)
+            }
 
-            if let model = snap?.model, !model.isEmpty {
-                infoRow(title: "当前模型", value: model).padding(.top, 16)
+            if !usage.model.isEmpty {
+                infoRow(title: "当前模型", value: usage.model).padding(.top, 12)
             }
-            if let today = snap?.today, today.tokens > 0 || today.cacheWriteTokens > 0 {
-                infoRow(title: "今日消耗", value: todayText(today)).padding(.top, 8)
+            if usage.today.tokens > 0 || usage.today.cacheWriteTokens > 0 {
+                infoRow(title: "今日消耗", value: todayText(usage.today, provider: usage.provider))
+                    .padding(.top, 8)
             }
-            let speed = speedText(snap)
+            let speed = active ? speedText(client.snapshot) : ""
             if !speed.isEmpty {
                 infoRow(title: "速度", value: speed).padding(.top, 8)
             }
+        }
+        .padding(12)
+        .background(CC.card.opacity(active ? 0.72 : 0.48))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(active ? CC.green.opacity(0.35) : CC.cardBorder, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func sourceLabel(_ source: String) -> String {
+        switch source {
+        case "live": return "实时"
+        case "local": return "本地"
+        default: return "本地统计"
         }
     }
 
@@ -122,10 +167,12 @@ struct PanelView: View {
         }
     }
 
-    private func todayText(_ t: TodayUsage) -> String {
+    private func todayText(_ t: TodayUsage, provider: String) -> String {
         var s = fmtTokens(t.tokens) + " tokens"
         if t.cacheWriteTokens > 0 { s += " +" + fmtTokens(t.cacheWriteTokens) + " 缓存" }
-        s += " · " + fmtUsd(t.costUSD)
+        // Codex/Gemini local records contain token counters but not a reliable
+        // billing charge. Do not invent one or query an API to calculate it.
+        if provider == "claude" { s += " · " + fmtUsd(t.costUSD) }
         return s
     }
 

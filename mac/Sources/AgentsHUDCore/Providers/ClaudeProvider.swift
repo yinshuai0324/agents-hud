@@ -26,7 +26,7 @@ public final class ClaudeProvider: Provider, @unchecked Sendable {
         let fm = FileManager.default
 
         guard let projDirs = try? fm.contentsOfDirectory(atPath: cfg.projectsDir) else {
-            return ProviderSnapshot()
+            return ProviderSnapshot(provider: name)
         }
 
         let now = Date().timeIntervalSince1970 * 1000
@@ -49,7 +49,7 @@ public final class ClaudeProvider: Provider, @unchecked Sendable {
                 }
             }
         }
-        return ProviderSnapshot(sessions: sessions, usageEvents: usageEvents)
+        return ProviderSnapshot(provider: name, sessions: sessions, usageEvents: usageEvents)
     }
 
     private func parseFile(

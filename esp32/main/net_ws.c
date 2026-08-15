@@ -18,6 +18,7 @@
 #include "cJSON.h"
 
 #include "board.h"
+#include "idle.h"
 #include "net_cfg.h"
 #include "provision_ble.h"
 
@@ -82,7 +83,7 @@ static void json_str(const cJSON *o, const char *k, char *out, size_t cap)
 
 /* Compact payload, identical to the legacy BLE format plus "t":"snap":
  * {"t":"snap","p5":52,"r5":161,"p7":27,"r7":5231,"tt":163962,"bu":15163,
- *  "lv":1,"w":1,"n":2,"wa":0,"e":0,"q":0,"to":3,"m":"Fable 5","pl":"Max (5x)"} */
+ *  "lv":1,"w":1,"n":2,"wa":0,"e":0,"q":0,"to":3,"m":"Fable 5","pl":"Max (5x)","pr":"claude"} */
 static bool parse_payload(const char *body, ahud_snapshot_t *out)
 {
     cJSON *root = cJSON_Parse(body);
@@ -109,6 +110,7 @@ static bool parse_payload(const char *body, ahud_snapshot_t *out)
     out->s_error = (int)json_ll(root, "e");
     out->s_quiet = (int)json_ll(root, "q");
     out->s_total = (int)json_ll(root, "to");
+    json_str(root, "pr", out->provider, sizeof(out->provider));
     json_str(root, "m", out->model, sizeof(out->model));
     json_str(root, "pl", out->plan, sizeof(out->plan));
     json_str(root, "h", out->host, sizeof(out->host));
@@ -121,6 +123,17 @@ static bool parse_payload(const char *body, ahud_snapshot_t *out)
 
 static void ws_handle_text(const char *body)
 {
+    cJSON *command = cJSON_Parse(body);
+    if (command) {
+        const cJSON *type = cJSON_GetObjectItemCaseSensitive(command, "t");
+        if (cJSON_IsString(type) && strcmp(type->valuestring, "display") == 0) {
+            const cJSON *on = cJSON_GetObjectItemCaseSensitive(command, "on");
+            idle_set_display_enabled(!cJSON_IsBool(on) || cJSON_IsTrue(on));
+            cJSON_Delete(command);
+            return;
+        }
+        cJSON_Delete(command);
+    }
     ahud_snapshot_t snap;
     if (parse_payload(body, &snap)) {
         s_last_data_tick = xTaskGetTickCount();

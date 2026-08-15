@@ -12,6 +12,7 @@
 #define FADE_IN_STEP 10
 
 static volatile uint32_t s_last_activity;
+static volatile bool s_display_enabled = true;
 static int s_brightness = BRIGHT_ACTIVE;
 
 void idle_note_activity(void)
@@ -37,10 +38,17 @@ void idle_force_sleep(void)
     s_last_activity = lv_tick_get() - IDLE_TIMEOUT_MS;
 }
 
+void idle_set_display_enabled(bool enabled)
+{
+    s_display_enabled = enabled;
+    if (enabled) idle_note_activity();
+}
+
 static void idle_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    bool want_awake = (lv_tick_get() - s_last_activity) < IDLE_TIMEOUT_MS;
+    bool want_awake = s_display_enabled
+        && (lv_tick_get() - s_last_activity) < IDLE_TIMEOUT_MS;
     int target = want_awake ? BRIGHT_ACTIVE : 0;
     if (s_brightness == target) return;
 

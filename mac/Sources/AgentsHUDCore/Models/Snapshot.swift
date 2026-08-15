@@ -44,11 +44,46 @@ public struct UsageEvent: Sendable {
 
 /// Everything a provider reads from disk in one pass.
 public struct ProviderSnapshot: Sendable {
+    public var provider: String
     public var sessions: [SessionData]
     public var usageEvents: [UsageEvent]
-    public init(sessions: [SessionData] = [], usageEvents: [UsageEvent] = []) {
+    /// Exact quota windows observed in this provider's local transcript.
+    public var usageWindows: [ProviderUsageWindow]
+    /// Provider-local subscription label, when recorded on disk.
+    public var plan: String
+    /// Provider-local daily usage. nil means this provider does not calculate it.
+    public var today: TodayUsage?
+
+    public init(
+        provider: String = "",
+        sessions: [SessionData] = [],
+        usageEvents: [UsageEvent] = [],
+        usageWindows: [ProviderUsageWindow] = [],
+        plan: String = "",
+        today: TodayUsage? = nil
+    ) {
+        self.provider = provider
         self.sessions = sessions
         self.usageEvents = usageEvents
+        self.usageWindows = usageWindows
+        self.plan = plan
+        self.today = today
+    }
+}
+
+/// A rate-limit window already present in a provider's local transcript.
+/// No network request is made by Agents HUD to obtain it.
+public struct ProviderUsageWindow: Sendable {
+    public var percent: Int
+    public var windowMinutes: Int
+    public var resetsAt: Double?
+    public var observedAt: Double
+
+    public init(percent: Int, windowMinutes: Int, resetsAt: Double?, observedAt: Double) {
+        self.percent = percent
+        self.windowMinutes = windowMinutes
+        self.resetsAt = resetsAt
+        self.observedAt = observedAt
     }
 }
 
@@ -93,6 +128,7 @@ public struct TodayUsage: Codable, Sendable {
 
 public struct WireSession: Codable, Sendable {
     public var id: String
+    public var provider: String
     public var project: String
     public var cwd: String
     public var state: SessionState
@@ -106,6 +142,7 @@ public struct WireSession: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
+        try c.encode(provider, forKey: .provider)
         try c.encode(project, forKey: .project)
         try c.encode(cwd, forKey: .cwd)
         try c.encode(state, forKey: .state)
@@ -130,6 +167,34 @@ public struct StatusCounts: Codable, Sendable {
     public var total: Int
 }
 
+/// Usage data for one enabled provider. The legacy top-level fields in
+/// `Snapshot` still mirror the currently active provider for old clients and
+/// device firmware; multi-provider clients render this list directly.
+public struct ProviderUsageSummary: Codable, Sendable {
+    public var provider: String
+    public var plan: String
+    public var model: String
+    public var usage5h: Usage5h
+    public var usage7d: UsageWindow?
+    public var today: TodayUsage
+
+    public init(
+        provider: String,
+        plan: String,
+        model: String,
+        usage5h: Usage5h,
+        usage7d: UsageWindow?,
+        today: TodayUsage
+    ) {
+        self.provider = provider
+        self.plan = plan
+        self.model = model
+        self.usage5h = usage5h
+        self.usage7d = usage7d
+        self.today = today
+    }
+}
+
 /// Wire format pushed to clients. Keep in sync with the Android Snapshot model.
 public struct Snapshot: Codable, Sendable {
     public var provider: String
@@ -140,6 +205,8 @@ public struct Snapshot: Codable, Sendable {
     /// Weekly (7-day) limit from Claude, when available; explicit null otherwise.
     public var usage7d: UsageWindow?
     public var today: TodayUsage
+    /// One entry per enabled source, in stable UI order.
+    public var providers: [ProviderUsageSummary]
     public var sessions: [WireSession]
     public var outputTokensPerSec: Int
     public var ts: String
@@ -153,6 +220,7 @@ public struct Snapshot: Codable, Sendable {
         try c.encode(usage5h, forKey: .usage5h)
         try c.encode(usage7d, forKey: .usage7d) // nil -> null, like JSON.stringify
         try c.encode(today, forKey: .today)
+        try c.encode(providers, forKey: .providers)
         try c.encode(sessions, forKey: .sessions)
         try c.encode(outputTokensPerSec, forKey: .outputTokensPerSec)
         try c.encode(ts, forKey: .ts)

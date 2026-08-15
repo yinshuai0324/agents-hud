@@ -1,4 +1,5 @@
 import Foundation
+import AgentsHUDCore
 
 /// Drives the bundled esptool binary. Encodes the ws175 board's known USB
 /// quirk: long transfers drop the CDC port, so the app image is written in

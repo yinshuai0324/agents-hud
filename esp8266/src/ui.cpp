@@ -46,7 +46,7 @@ static bool s_forceText = false;
 static void drawUsageChrome() {
     tft.setTextColor(COL_DIM, COL_BG);
     tft.setTextDatum(TL_DATUM);
-    tft.drawString("AgentsHUD", 12, 8, 2);
+    tft.drawString("AgentsHUD", 52, 8, 2);
     tft.drawString("5H", 12, 40, 4);
     tft.drawString("7D", 12, 138, 4);
     tft.drawFastHLine(0, 30, 240, COL_PANEL);
@@ -57,9 +57,15 @@ static void drawUsageChrome() {
 
 void uiBegin() {
     tft.init();
+    pinMode(TFT_BL, OUTPUT);
+    digitalWrite(TFT_BL, TFT_BACKLIGHT_ON);
     tft.setRotation(0);
     tft.fillScreen(COL_BG);
     drawUsageChrome();
+}
+
+void uiSetDisplayPower(bool on) {
+    digitalWrite(TFT_BL, on ? TFT_BACKLIGHT_ON : (TFT_BACKLIGHT_ON == HIGH ? LOW : HIGH));
 }
 
 // Redraw the usage page background/chrome (call when returning from a text card).
@@ -145,6 +151,16 @@ void uiUpdate(NetState state, const Snapshot &snap, bool haveData) {
     tft.setTextColor(COL_DIM, COL_BG);
     tft.setTextPadding(70);
     tft.drawString(netDeviceId(), 228, 8, 2);
+
+    // Current provider icon: Claude = A, Codex = >_, Gemini = G.
+    const bool codex = strcmp(snap.provider, "codex") == 0;
+    const bool gemini = strcmp(snap.provider, "gemini") == 0;
+    const uint16_t providerColor = codex ? COL_QUIET : (gemini ? COL_WAIT : COL_ACCENT);
+    tft.fillRoundRect(12, 8, 32, 22, 6, providerColor);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(COL_BG, providerColor);
+    tft.setTextPadding(28);
+    tft.drawString(codex ? ">_" : (gemini ? "G" : (snap.provider[0] ? "A" : "?")), 28, 19, 2);
 
     // Connection banner replaces the status row when not OK.
     tft.setTextDatum(TL_DATUM);

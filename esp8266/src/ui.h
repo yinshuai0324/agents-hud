@@ -11,3 +11,6 @@ void uiUpdate(NetState state, const Snapshot &snap, bool haveData);
 void uiShowText(const char *title, const char *body);
 // Redraw the usage page chrome when returning from a text card.
 void uiEnterUsage();
+
+// Toggle the TFT backlight without stopping WiFi or display rendering.
+void uiSetDisplayPower(bool on);

@@ -13,10 +13,12 @@ struct Snapshot: Decodable {
     var model = ""
     var status = Status()
     var usage5h = Usage5h()
-    /// Weekly (7-day) limit, present only when Claude provides it.
+    /// Weekly (7-day) limit, when the active provider records one locally.
     var usage7d: UsageWindow?
     /// Today's total spend across all sessions (local day).
     var today = TodayUsage()
+    /// All user-enabled sources. Empty when connected to an older server.
+    var providers: [ProviderUsage] = []
     var sessions: [Session] = []
     /// Live output generation speed (tokens/sec) of the fastest streaming session.
     var outputTokensPerSec = 0
@@ -32,13 +34,38 @@ struct Snapshot: Decodable {
         usage5h = c.v(.usage5h, Usage5h())
         usage7d = try? c.decodeIfPresent(UsageWindow.self, forKey: .usage7d)
         today = c.v(.today, TodayUsage())
+        providers = c.v(.providers, [])
         sessions = c.v(.sessions, [])
         outputTokensPerSec = c.v(.outputTokensPerSec, 0)
         ts = c.v(.ts, "")
     }
     enum K: String, CodingKey {
-        case provider, plan, model, status, usage5h, usage7d, today, sessions, outputTokensPerSec, ts
+        case provider, plan, model, status, usage5h, usage7d, today, providers, sessions, outputTokensPerSec, ts
     }
+}
+
+struct ProviderUsage: Decodable, Identifiable {
+    var provider = ""
+    var plan = ""
+    var model = ""
+    var usage5h = Usage5h()
+    var usage7d: UsageWindow?
+    var today = TodayUsage()
+
+    var id: String { provider }
+
+    init() {}
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: K.self)
+        provider = c.v(.provider, "")
+        plan = c.v(.plan, "")
+        model = c.v(.model, "")
+        usage5h = c.v(.usage5h, Usage5h())
+        usage7d = try? c.decodeIfPresent(UsageWindow.self, forKey: .usage7d)
+        today = c.v(.today, TodayUsage())
+    }
+
+    enum K: String, CodingKey { case provider, plan, model, usage5h, usage7d, today }
 }
 
 struct Status: Decodable {
@@ -64,7 +91,7 @@ struct Usage5h: Decodable {
     var blockStart: String?
     var blockEnd: String?
     var burnRatePerMin: Int64 = 0
-    /// "live" = real numbers from Claude; "estimate" = local approximation.
+    /// "live" = Claude statusLine, "local" = Codex transcript, "estimate" = approximation.
     var source = "estimate"
 
     init() {}
@@ -114,6 +141,7 @@ struct TodayUsage: Decodable {
 
 struct Session: Decodable, Identifiable {
     var id = ""
+    var provider = ""
     var project = ""
     var cwd = ""
     var state = "quiet"
@@ -128,14 +156,15 @@ struct Session: Decodable, Identifiable {
     init() {}
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: K.self)
-        id = c.v(.id, ""); project = c.v(.project, ""); cwd = c.v(.cwd, "")
+        id = c.v(.id, ""); provider = c.v(.provider, "")
+        project = c.v(.project, ""); cwd = c.v(.cwd, "")
         state = c.v(.state, "quiet"); model = c.v(.model, "")
         lastActivity = c.v(.lastActivity, 0); tokens = c.v(.tokens, 0)
         contextTokens = c.v(.contextTokens, 0); contextLeftPercent = c.v(.contextLeftPercent, 0)
         currentTool = c.v(.currentTool, "")
     }
     enum K: String, CodingKey {
-        case id, project, cwd, state, model, lastActivity, tokens, contextTokens, contextLeftPercent, currentTool
+        case id, provider, project, cwd, state, model, lastActivity, tokens, contextTokens, contextLeftPercent, currentTool
     }
 }
 

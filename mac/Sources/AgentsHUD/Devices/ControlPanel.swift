@@ -3,11 +3,12 @@ import AgentsHUDCore
 
 /// Per-device content controls: what the Mac pushes to a connected dial.
 /// Usage snapshots stream by default; text cards send on demand; scheduled
-/// tasks fire daily at HH:mm. Animation lands in a later iteration.
+/// tasks can fire at HH:mm or keep a text card visible for a daily time range.
 struct ControlPanel: View {
     let device: DeviceInfo
     @ObservedObject var server: ServerController
     @ObservedObject private var scheduler = DeviceScheduler.shared
+    @ObservedObject private var displayPower = DisplayPowerController.shared
 
     @State private var usageOn = true
     @State private var textTitle = ""
@@ -18,19 +19,49 @@ struct ControlPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            usageBlock
-            Divider().overlay(CC.cardBorder)
-            textBlock
-            Divider().overlay(CC.cardBorder)
+            if device.supports(.usageSnapshot) {
+                usageBlock
+            }
+            if device.supports(.usageSnapshot) && device.supports(.displayPower) {
+                Divider().overlay(CC.cardBorder)
+            }
+            if device.supports(.displayPower) { displayPowerBlock }
+            if (device.supports(.usageSnapshot) || device.supports(.displayPower))
+                && device.supports(.textCard) {
+                Divider().overlay(CC.cardBorder)
+            }
+            if device.supports(.textCard) {
+                textBlock
+            }
+            if device.supports(.usageSnapshot) || device.supports(.displayPower)
+                || device.supports(.textCard) {
+                Divider().overlay(CC.cardBorder)
+            }
             scheduleBlock
-            Divider().overlay(CC.cardBorder)
-            comingSoonBlock
         }
         .padding(14)
         .background(CC.card)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(CC.cardBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onAppear { usageOn = device.usageEnabled }
+    }
+
+    // MARK: 屏幕电源
+
+    private var displayPowerBlock: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("电脑锁屏联动").font(.system(size: 13, weight: .semibold))
+                Text("Mac 锁屏时关闭设备屏幕，解锁后按定时策略恢复")
+                    .font(.system(size: 11)).foregroundColor(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { displayPower.isLockScreenOffEnabled(for: device.id) },
+                set: { displayPower.setLockScreenOff($0, deviceID: device.id) }
+            ))
+            .labelsHidden()
+        }
     }
 
     // MARK: 用量概览
@@ -94,7 +125,7 @@ struct ControlPanel: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("定时任务").font(.system(size: 13, weight: .semibold))
-                    Text("每天到点自动下发文字或切换用量推送")
+                    Text("每天到点执行，或在指定时间段显示文字、关闭屏幕")
                         .font(.system(size: 11)).foregroundColor(.secondary)
                 }
                 Spacer()
@@ -104,17 +135,24 @@ struct ControlPanel: View {
                 taskRow(task)
             }
             if showAddTask {
-                AddTaskForm(deviceId: device.id) { showAddTask = false }
+                AddTaskForm(device: device) { showAddTask = false }
             }
         }
     }
 
     private func taskRow(_ task: ScheduledTask) -> some View {
-        HStack(spacing: 10) {
-            Text(task.timeText)
+        let supported = task.action.isSupported(by: device)
+        return HStack(spacing: 10) {
+            Text(task.scheduleText)
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .frame(minWidth: task.hasTimeRange ? 92 : 46, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
                 Text(task.summary).font(.system(size: 12))
+                if !supported {
+                    Text("当前设备不支持此功能")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
                 if let note = scheduler.lastResult[task.id] {
                     Text(note).font(.system(size: 10)).foregroundColor(.secondary)
                 }
@@ -126,6 +164,7 @@ struct ControlPanel: View {
             ))
             .labelsHidden()
             .controlSize(.mini)
+            .disabled(!supported)
             Button {
                 scheduler.remove(task.id)
             } label: {
@@ -134,53 +173,50 @@ struct ControlPanel: View {
             .buttonStyle(.plain)
         }
         .padding(.vertical, 2)
-        .opacity(task.enabled ? 1 : 0.5)
-    }
-
-    // MARK: 动画（后续）
-
-    private var comingSoonBlock: some View {
-        comingRow(icon: "photo.on.rectangle.angled", title: "动画", desc: "下发像素动画资源（开发中）")
-    }
-
-    private func comingRow(icon: String, title: String, desc: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon).foregroundColor(.secondary).frame(width: 20)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                Text(desc).font(.system(size: 11)).foregroundColor(.secondary)
-            }
-            Spacer()
-            Text("开发中").font(.system(size: 10))
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(CC.chip).clipShape(Capsule())
-                .foregroundColor(.secondary)
-        }
-        .opacity(0.7)
+        .opacity(task.enabled && supported ? 1 : 0.5)
     }
 }
 
 /// Inline editor for a new scheduled task (time + action + optional text).
 private struct AddTaskForm: View {
-    let deviceId: String
+    private enum TextTiming: String, CaseIterable, Identifiable {
+        case range
+        case point
+
+        var id: String { rawValue }
+        var label: String { self == .range ? "时间段" : "到点停留" }
+    }
+
+    let device: DeviceInfo
     let onDone: () -> Void
 
     @State private var time = Calendar.current.date(
         bySettingHour: 9, minute: 0, second: 0, of: Date()
     ) ?? Date()
-    @State private var action: ScheduledTask.Action = .showText
+    @State private var endTime = Calendar.current.date(
+        bySettingHour: 18, minute: 0, second: 0, of: Date()
+    ) ?? Date()
+    @State private var action: ScheduledTask.Action
+    @State private var textTiming: TextTiming = .range
     @State private var textTitle = ""
     @State private var textBody = ""
     @State private var holdSeconds = 0
 
+    private var supportedActions: [ScheduledTask.Action] {
+        ScheduledTask.Action.allCases.filter { $0.isSupported(by: device) }
+    }
+
+    init(device: DeviceInfo, onDone: @escaping () -> Void) {
+        self.device = device
+        self.onDone = onDone
+        _action = State(initialValue: device.supports(.textCard) ? .showText : .usageOn)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                DatePicker("", selection: $time, displayedComponents: .hourAndMinute)
-                    .labelsHidden()
-                    .frame(width: 80)
                 Picker("", selection: $action) {
-                    ForEach(ScheduledTask.Action.allCases) { a in
+                    ForEach(supportedActions) { a in
                         Text(a.label).tag(a)
                     }
                 }
@@ -189,25 +225,77 @@ private struct AddTaskForm: View {
                 Spacer()
             }
             if action == .showText {
+                Picker("显示方式", selection: $textTiming) {
+                    ForEach(TextTiming.allCases) { timing in
+                        Text(timing.label).tag(timing)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 280)
+
+                HStack(spacing: 8) {
+                    Text(textTiming == .range ? "开始" : "时间")
+                        .font(.system(size: 12)).foregroundColor(.secondary)
+                    DatePicker("", selection: $time, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .frame(width: 80)
+                    if textTiming == .range {
+                        Text("结束")
+                            .font(.system(size: 12)).foregroundColor(.secondary)
+                        DatePicker("", selection: $endTime, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .frame(width: 80)
+                    }
+                    Spacer()
+                }
                 TextField("标题（可空）", text: $textTitle)
                 TextField("正文", text: $textBody)
-                HStack(spacing: 10) {
-                    Text("停留").font(.system(size: 12)).foregroundColor(.secondary)
-                    Picker("", selection: $holdSeconds) {
-                        Text("常驻").tag(0)
-                        Text("10 秒").tag(10)
-                        Text("30 秒").tag(30)
-                        Text("2 分钟").tag(120)
+                if textTiming == .point {
+                    HStack(spacing: 10) {
+                        Text("停留").font(.system(size: 12)).foregroundColor(.secondary)
+                        Picker("", selection: $holdSeconds) {
+                            Text("常驻").tag(0)
+                            Text("10 秒").tag(10)
+                            Text("30 秒").tag(30)
+                            Text("2 分钟").tag(120)
+                        }
+                        .labelsHidden()
+                        .frame(width: 90)
+                        Spacer()
                     }
-                    .labelsHidden()
-                    .frame(width: 90)
+                } else {
+                    Text("到达结束时间后自动恢复用量页；结束早于开始时按跨午夜处理。")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            } else if action == .screenOff {
+                HStack(spacing: 8) {
+                    Text("开始").font(.system(size: 12)).foregroundColor(.secondary)
+                    DatePicker("", selection: $time, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .frame(width: 80)
+                    Text("结束").font(.system(size: 12)).foregroundColor(.secondary)
+                    DatePicker("", selection: $endTime, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .frame(width: 80)
+                    Spacer()
+                }
+                Text("时段结束后自动亮屏；若 Mac 仍处于锁屏状态，则继续保持关屏。")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    Text("时间").font(.system(size: 12)).foregroundColor(.secondary)
+                    DatePicker("", selection: $time, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .frame(width: 80)
                     Spacer()
                 }
             }
             HStack {
                 Spacer()
                 Button("保存") { save() }
-                    .disabled(action == .showText && textBody.isEmpty)
+                    .disabled(!canSave)
             }
         }
         .padding(10)
@@ -217,15 +305,34 @@ private struct AddTaskForm: View {
 
     private func save() {
         let comps = Calendar.current.dateComponents([.hour, .minute], from: time)
+        let end = Calendar.current.dateComponents([.hour, .minute], from: endTime)
+        let useRange = action == .screenOff || (action == .showText && textTiming == .range)
         DeviceScheduler.shared.add(ScheduledTask(
-            deviceId: deviceId,
+            deviceId: device.id,
+            boardId: device.board,
             hour: comps.hour ?? 0,
             minute: comps.minute ?? 0,
             action: action,
             textTitle: textTitle,
             textBody: textBody,
-            holdSeconds: holdSeconds
+            holdSeconds: useRange ? 0 : holdSeconds,
+            endHour: useRange ? (end.hour ?? 0) : nil,
+            endMinute: useRange ? (end.minute ?? 0) : nil
         ))
         onDone()
+    }
+
+    private var canSave: Bool {
+        if action == .screenOff { return startAndEndDiffer }
+        guard action == .showText else { return true }
+        guard !textBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard textTiming == .range else { return true }
+        return startAndEndDiffer
+    }
+
+    private var startAndEndDiffer: Bool {
+        let start = Calendar.current.dateComponents([.hour, .minute], from: time)
+        let end = Calendar.current.dateComponents([.hour, .minute], from: endTime)
+        return start.hour != end.hour || start.minute != end.minute
     }
 }

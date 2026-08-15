@@ -58,6 +58,7 @@ static usage_card_t s_card_7d;
 static lv_obj_t *s_status_row;
 static lv_obj_t *s_status_spinner;
 static lv_obj_t *s_status_lbl;
+static lv_obj_t *s_provider_badge;
 
 /* Detail view */
 static lv_obj_t *s_det_sessions;
@@ -537,6 +538,10 @@ void ui_init(void)
         lv_obj_add_flag(logo, LV_OBJ_FLAG_EVENT_BUBBLE);
     }
 
+    /* Current provider mark: Claude = A, Codex = >_, Gemini = G. */
+    s_provider_badge = make_pill(s_view_usage, "?");
+    lv_obj_align(s_provider_badge, LV_ALIGN_TOP_RIGHT, -58, 42);
+
     make_usage_card(s_view_usage, &s_card_5h, "5小时", 124);
     make_usage_card(s_view_usage, &s_card_7d, "7天", 252);
 
@@ -655,6 +660,11 @@ void ui_update(const ahud_snapshot_t *snap, ahud_net_state_t net)
 
         lv_label_set_text(s_det_model, snap->model[0] ? snap->model : "--");
         lv_label_set_text(s_det_plan, snap->plan[0] ? snap->plan : "--");
+
+        bool codex = strcmp(snap->provider, "codex") == 0;
+        bool gemini = strcmp(snap->provider, "gemini") == 0;
+        lv_label_set_text(s_provider_badge, codex ? ">_" : (gemini ? "G" : (snap->provider[0] ? "A" : "?")));
+        lv_obj_set_style_text_color(s_provider_badge, codex ? COL_GREEN : (gemini ? COL_ST_WAITING : COL_ACCENT), 0);
     }
 
     refresh_status();

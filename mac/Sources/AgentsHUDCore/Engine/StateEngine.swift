@@ -66,26 +66,47 @@ public final class StateEngine: @unchecked Sendable {
     private let lock = NSRecursiveLock()
     private var runtimes: [String: Runtime] = [:]
     private var sessions: [String: SessionData] = [:]
-    private var usageEvents: [UsageEvent] = []
+    private var providerSnapshots: [String: ProviderSnapshot] = [:]
+    private var usageEventsByProvider: [String: [UsageEvent]] = [:]
     private var listeners: [UUID: @Sendable (Snapshot) -> Void] = [:]
     private var lastJson = Data()
     private var liveFiveHour: LiveWindow?
     private var liveSevenDay: LiveWindow?
     private var liveSessions: [String: LiveSession] = [:]
     /// Cached full-disk tally of today's spend; refreshed on a slow timer.
-    private var todayUsage: TodayUsage = .zero
+    private var todayUsageByProvider: [String: TodayUsage] = [:]
 
     private let cfg: Config
     private let providers: [Provider]
     private let planResolver: PlanResolver
+    private var enabledProviders: Set<String>
     private var timers: [DispatchSourceTimer] = []
     private var watchDisposers: [() -> Void] = []
     private let timerQueue = DispatchQueue(label: "com.ooimi.agents.hud.engine")
 
-    public init(cfg: Config, providers: [Provider], planResolver: PlanResolver = PlanResolver()) {
+    public init(
+        cfg: Config,
+        providers: [Provider],
+        planResolver: PlanResolver = PlanResolver(),
+        enabledProviders: Set<String>? = nil
+    ) {
         self.cfg = cfg
         self.providers = providers
         self.planResolver = planResolver
+        self.enabledProviders = enabledProviders ?? Set(providers.map(\.name))
+    }
+
+    /// Change which local providers participate in snapshots. At least one
+    /// valid source must remain enabled.
+    public func setEnabledProviders(_ requested: Set<String>) {
+        let validNames = Set(providers.map(\.name))
+        let next = requested.intersection(validNames)
+        guard !next.isEmpty else { return }
+        lock.lock()
+        enabledProviders = next
+        lastJson = Data()
+        lock.unlock()
+        tickAndEmit()
     }
 
     // MARK: - Usage cache (survives restarts)
@@ -182,7 +203,7 @@ public final class StateEngine: @unchecked Sendable {
     private func refreshTodayUsage() {
         let usage = TodayUsageScanner.compute(cfg: cfg)
         lock.lock()
-        todayUsage = usage
+        todayUsageByProvider["claude"] = usage
         lock.unlock()
         tickAndEmit()
     }
@@ -207,9 +228,13 @@ public final class StateEngine: @unchecked Sendable {
         let now = nowMs()
         lock.lock()
         var seen = Set<String>()
-        var allEvents: [UsageEvent] = []
         for snap in collected {
-            allEvents.append(contentsOf: snap.usageEvents)
+            let provider = snap.provider.isEmpty
+                ? (snap.sessions.first?.provider ?? "unknown")
+                : snap.provider
+            providerSnapshots[provider] = snap
+            usageEventsByProvider[provider] = snap.usageEvents
+            if let today = snap.today { todayUsageByProvider[provider] = today }
             for s in snap.sessions {
                 seen.insert(s.id)
                 sessions[s.id] = s
@@ -218,7 +243,6 @@ public final class StateEngine: @unchecked Sendable {
                 }
             }
         }
-        usageEvents = allEvents
         // Drop sessions the providers no longer report (aged out beyond dropAfterMs).
         for id in sessions.keys where !seen.contains(id) {
             sessions[id] = nil
@@ -499,6 +523,7 @@ public final class StateEngine: @unchecked Sendable {
         var waiting = 0, working = 0, quiet = 0, notify = 0, error = 0
         var wire: [WireSession] = []
         for (id, s) in sessions {
+            guard enabledProviders.contains(s.provider) else { continue }
             let rt = runtimes[id]
             let state = rt?.state ?? .quiet
             switch state {
@@ -524,6 +549,7 @@ public final class StateEngine: @unchecked Sendable {
             let project = liveFresh && !(live!.name.isEmpty) ? live!.name : s.project
             wire.append(WireSession(
                 id: id,
+                provider: s.provider,
                 project: project,
                 cwd: s.cwd,
                 state: state,
@@ -537,59 +563,103 @@ public final class StateEngine: @unchecked Sendable {
         }
         wire.sort { $0.lastActivity > $1.lastActivity }
 
-        // Current model = the most recently active session's model.
-        var currentModel = ""
-        if let top = wire.first {
-            let live = liveSessions[top.id]
-            if let live, !live.model.isEmpty, now - live.ts < Self.liveTTLMs {
-                currentModel = live.model
-            } else {
-                currentModel = prettyModel(top.model)
-            }
+        let sourceOrder = providers.map(\.name).filter { enabledProviders.contains($0) }
+        let activeProvider = wire.first?.provider ?? sourceOrder.first ?? "claude"
+        let providerSummaries = sourceOrder.map {
+            buildProviderSummary(provider: $0, sessions: wire, now: now)
         }
+        let activeSummary = providerSummaries.first { $0.provider == activeProvider }
+            ?? buildProviderSummary(provider: activeProvider, sessions: wire, now: now)
 
         // Live output speed: the fastest session still actively streaming.
         var outputTokensPerSec = 0
-        for live in liveSessions.values {
-            if now - live.ts <= Self.speedMaxDeltaMs, live.outTokPerSec > outputTokensPerSec {
-                outputTokensPerSec = live.outTokPerSec
+        if activeProvider == "claude" {
+            for live in liveSessions.values {
+                if now - live.ts <= Self.speedMaxDeltaMs, live.outTokPerSec > outputTokensPerSec {
+                    outputTokensPerSec = live.outTokPerSec
+                }
             }
         }
 
         // Follow the most recently active session (wire is sorted newest-first).
         let dominant = wire.first?.state ?? .quiet
 
-        // Prefer Claude's real 5h numbers (from statusLine) over the local estimate.
-        var usage5h = Usage5hCalculator.compute(events: usageEvents, cfg: cfg, now: now)
-        if let liveFive = effectiveLiveWindow(liveFiveHour, windowMs: Self.fiveHourMs, now: now) {
-            usage5h.percent = liveFive.percent
-            usage5h.resetInMinutes = minutesUntil(liveFive.resetsAt, now: now) ?? usage5h.resetInMinutes
-            usage5h.source = "live"
-        }
-
-        var usage7d: UsageWindow?
-        if let liveSeven = effectiveLiveWindow(liveSevenDay, windowMs: Self.sevenDayMs, now: now) {
-            usage7d = UsageWindow(
-                percent: liveSeven.percent,
-                resetInMinutes: minutesUntil(liveSeven.resetsAt, now: now) ?? 0
-            )
-        }
-
         return Snapshot(
-            provider: providers.first?.name ?? "claude",
-            plan: planResolver.resolve(now: now),
-            model: currentModel,
+            provider: activeProvider,
+            plan: activeSummary.plan,
+            model: activeSummary.model,
             status: StatusCounts(
                 waiting: waiting, working: working, quiet: quiet, notify: notify,
                 error: error, dominant: dominant,
                 total: waiting + working + quiet + notify + error
             ),
-            usage5h: usage5h,
-            usage7d: usage7d,
-            today: todayUsage,
+            usage5h: activeSummary.usage5h,
+            usage7d: activeSummary.usage7d,
+            today: activeSummary.today,
+            providers: providerSummaries,
             sessions: wire,
             outputTokensPerSec: outputTokensPerSec,
             ts: ISO8601Millis.string(fromEpochMs: now)
+        )
+    }
+
+    private func buildProviderSummary(
+        provider: String,
+        sessions wire: [WireSession],
+        now: Double
+    ) -> ProviderUsageSummary {
+        var model = ""
+        if let top = wire.first(where: { $0.provider == provider }) {
+            let live = liveSessions[top.id]
+            if let live, !live.model.isEmpty, now - live.ts < Self.liveTTLMs {
+                model = live.model
+            } else {
+                model = prettyModel(top.model)
+            }
+        }
+
+        var usage5h = Usage5hCalculator.compute(
+            events: usageEventsByProvider[provider] ?? [],
+            cfg: cfg,
+            now: now
+        )
+        var usage7d: UsageWindow?
+        let plan: String
+        if provider == "claude" {
+            if let liveFive = effectiveLiveWindow(liveFiveHour, windowMs: Self.fiveHourMs, now: now) {
+                usage5h.percent = liveFive.percent
+                usage5h.resetInMinutes = minutesUntil(liveFive.resetsAt, now: now) ?? usage5h.resetInMinutes
+                usage5h.source = "live"
+            }
+            if let liveSeven = effectiveLiveWindow(liveSevenDay, windowMs: Self.sevenDayMs, now: now) {
+                usage7d = UsageWindow(
+                    percent: liveSeven.percent,
+                    resetInMinutes: minutesUntil(liveSeven.resetsAt, now: now) ?? 0
+                )
+            }
+            plan = planResolver.resolve(now: now)
+        } else {
+            let windows = providerSnapshots[provider]?.usageWindows ?? []
+            if let five = bestWindow(in: windows, targetMinutes: 300, maxDistance: 60),
+               let effective = effectiveLocalWindow(five, now: now) {
+                usage5h.percent = effective.percent
+                usage5h.resetInMinutes = effective.resetInMinutes
+                usage5h.source = "local"
+            }
+            if let seven = bestWindow(in: windows, targetMinutes: 10_080, maxDistance: 1_440),
+               let effective = effectiveLocalWindow(seven, now: now) {
+                usage7d = UsageWindow(percent: effective.percent, resetInMinutes: effective.resetInMinutes)
+            }
+            plan = providerSnapshots[provider]?.plan ?? ""
+        }
+
+        return ProviderUsageSummary(
+            provider: provider,
+            plan: plan,
+            model: model,
+            usage5h: usage5h,
+            usage7d: usage7d,
+            today: todayUsageByProvider[provider] ?? .zero
         )
     }
 
@@ -608,6 +678,33 @@ public final class StateEngine: @unchecked Sendable {
         // the current window and show it freshly empty until real numbers land.
         let periods = ((now - resetsAt) / windowMs).rounded(.down) + 1
         return (0, resetsAt + periods * windowMs)
+    }
+
+    private func bestWindow(
+        in windows: [ProviderUsageWindow],
+        targetMinutes: Int,
+        maxDistance: Int
+    ) -> ProviderUsageWindow? {
+        windows
+            .filter { abs($0.windowMinutes - targetMinutes) <= maxDistance }
+            .min { abs($0.windowMinutes - targetMinutes) < abs($1.windowMinutes - targetMinutes) }
+    }
+
+    private func effectiveLocalWindow(
+        _ window: ProviderUsageWindow,
+        now: Double
+    ) -> (percent: Int, resetInMinutes: Int)? {
+        guard let reset = window.resetsAt else {
+            return (window.percent, 0)
+        }
+        if now < reset {
+            return (window.percent, minutesUntil(reset, now: now) ?? 0)
+        }
+        let duration = Double(window.windowMinutes) * 60_000
+        guard duration > 0 else { return nil }
+        let periods = ((now - reset) / duration).rounded(.down) + 1
+        let nextReset = reset + periods * duration
+        return (0, minutesUntil(nextReset, now: now) ?? window.windowMinutes)
     }
 }
 
