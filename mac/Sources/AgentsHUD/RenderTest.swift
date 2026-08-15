@@ -51,3 +51,43 @@ func runRenderTestIfRequested() -> Bool {
     }
     exit(0)
 }
+
+@MainActor
+func runRenderMainIfRequested() -> Bool {
+    guard CommandLine.arguments.contains("--render-main") else { return false }
+
+    let outPath = CommandLine.arguments.dropFirst()
+        .first(where: { !$0.hasPrefix("--") })
+        ?? NSTemporaryDirectory() + "agentshud-main.png"
+
+    let client = SignalClient.shared
+    client.connection = .connected
+    let server = ServerController.shared
+    let provisioner = BLEProvisioner()
+    let serialProvisioner = SerialProvisioner()
+    let updater = FirmwareUpdater()
+    let nav = MainNavigation()
+
+    let view = MainView(
+        client: client,
+        server: server,
+        provisioner: provisioner,
+        serialProvisioner: serialProvisioner,
+        updater: updater,
+        navigation: nav
+    )
+    .frame(width: 800, height: 560)
+
+    let renderer = ImageRenderer(content: view)
+    renderer.scale = 2
+    if let nsImage = renderer.nsImage,
+       let tiff = nsImage.tiffRepresentation,
+       let rep = NSBitmapImageRep(data: tiff),
+       let png = rep.representation(using: .png, properties: [:]) {
+        try? png.write(to: URL(fileURLWithPath: outPath))
+        FileHandle.standardError.write("rendered: \(outPath)\n".data(using: .utf8)!)
+    } else {
+        FileHandle.standardError.write("render failed\n".data(using: .utf8)!)
+    }
+    exit(0)
+}

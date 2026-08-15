@@ -1,19 +1,29 @@
 import SwiftUI
+import AppKit
 
-/// The desktop app's main window: a sidebar (概览 / 设备 / 设置) over a shared
-/// dark HUD theme. Replaces the menu-bar-only popover as the primary UI so the
-/// app is a normal windowed application (Dock icon, ⌘Tab, resizable window).
+@MainActor
+final class MainNavigation: ObservableObject {
+    @Published var selection: MainView.Section? = .devices
+}
+
+/// The desktop app's main window: genuine macOS Finder-style sidebar
+/// (设备 / 设置) using the system's native sidebar Source List.
 struct MainView: View {
+    private let sidebarWidth: CGFloat = 175
+
     @ObservedObject var client: SignalClient
     @ObservedObject var server: ServerController
     let provisioner: BLEProvisioner
     let serialProvisioner: SerialProvisioner
     let updater: FirmwareUpdater
+    @ObservedObject var navigation: MainNavigation
 
-    enum Section: String, CaseIterable, Identifiable {
+    enum Section: String, CaseIterable, Identifiable, Hashable {
         case devices = "设备"
         case settings = "设置"
+
         var id: String { rawValue }
+
         var icon: String {
             switch self {
             case .devices: return "display"
@@ -22,27 +32,52 @@ struct MainView: View {
         }
     }
 
-    @State private var selection: Section = .devices
-
     var body: some View {
-        NavigationSplitView {
-            List(Section.allCases, selection: $selection) { section in
-                Label(section.rawValue, systemImage: section.icon)
-                    .tag(section)
+        HStack(spacing: 0) {
+            ZStack {
+                Color.white
+                    .ignoresSafeArea()
+
+                List(selection: $navigation.selection) {
+                    ForEach(Section.allCases) { section in
+                        Label(section.rawValue, systemImage: section.icon)
+                            .tag(section)
+                    }
+                }
+                .listStyle(.sidebar)
+                .scrollDisabled(true)
+                .scrollContentBackground(.hidden)
+                .sidebarContentMarginsIfAvailable()
+                .padding(.horizontal, 6)
+                .safeAreaInset(edge: .bottom) {
+                    ServerStatusFooter(server: server, client: client)
+                }
             }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 140, ideal: 160, max: 200)
-            .safeAreaInset(edge: .bottom) { sidebarFooter }
-        } detail: {
+            .frame(width: sidebarWidth)
+            .frame(maxHeight: .infinity)
+            .clipped()
+            .background {
+                Color.white
+                    .ignoresSafeArea()
+            }
+
+            Rectangle()
+                .fill(CC.separator)
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .background {
+                    CC.separator
+                        .ignoresSafeArea()
+                }
+
             detail
-                .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 680, minHeight: 520)
-        .preferredColorScheme(.dark)
+        .frame(minWidth: 680, minHeight: 480)
     }
 
     @ViewBuilder private var detail: some View {
-        switch selection {
+        switch navigation.selection ?? .devices {
         case .devices:
             DevicesView(
                 provisioner: provisioner,
@@ -54,27 +89,38 @@ struct MainView: View {
             SettingsView(server: server, client: client)
         }
     }
+}
 
-    private var sidebarFooter: some View {
-        VStack(alignment: .leading, spacing: 3) {
+/// Sidebar bottom status footer.
+private struct ServerStatusFooter: View {
+    @ObservedObject var server: ServerController
+    @ObservedObject var client: SignalClient
+
+    var body: some View {
+        VStack(alignment: .center, spacing: 3) {
+            Divider()
+                .overlay(CC.separator)
+                .padding(.bottom, 6)
+
             HStack(spacing: 6) {
                 Circle()
                     .fill(serverColor)
                     .frame(width: 7, height: 7)
                 Text(serverStatusText)
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
             Text("v\(ServerController.appVersion)")
-                .font(.system(size: 9))
+                .font(.system(size: 10))
                 .foregroundColor(.secondary.opacity(0.7))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
     }
 
     private var serverColor: Color {
+        if isClientConnected { return CC.green }
         switch server.status {
         case .running: return CC.green
         case .starting, .stopped: return CC.yellow
@@ -83,12 +129,39 @@ struct MainView: View {
     }
 
     private var serverStatusText: String {
+        if isClientConnected { return "服务运行中" }
         switch server.status {
-        case .running(let port): return "服务运行中 :\(port)"
+        case .running: return "服务运行中"
         case .starting: return "服务启动中…"
         case .stopped: return "服务已停止"
-        case .portConflict(let port): return "端口 \(port) 被占用"
+        case .portConflict: return "端口被占用"
         case .failed: return "服务启动失败"
+        }
+    }
+
+    private var isClientConnected: Bool {
+        if case .connected = client.connection { return true }
+        return false
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func removingSidebarToggleIfAvailable() -> some View {
+        if #available(macOS 14.0, *) {
+            toolbar(removing: .sidebarToggle)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func sidebarContentMarginsIfAvailable() -> some View {
+        if #available(macOS 14.0, *) {
+            contentMargins(.horizontal, 12, for: .scrollContent)
+                .contentMargins(.top, 8, for: .scrollContent)
+        } else {
+            self
         }
     }
 }

@@ -57,7 +57,11 @@ final class GoldenWireTests: XCTestCase {
 
     private func makeConfig() throws -> Config {
         let claudeHome = try fixturesURL().appendingPathComponent("claude-home")
-        return Config(claudeDir: claudeHome.path)
+        // Fixture mtimes naturally age as the repository sits on disk. The
+        // production six-hour expiry is already covered by provider behavior;
+        // golden tests must stay deterministic and keep reading their fixed
+        // transcripts regardless of the wall-clock date of the test run.
+        return Config(claudeDir: claudeHome.path, dropAfterMs: .greatestFiniteMagnitude)
     }
 
     func testProviderSessionsMatchNode() async throws {

@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if runRenderIconIfRequested() { return }
         if runRenderTestIfRequested() { return }
+        if runRenderMainIfRequested() { return }
 
         // Regular app: Dock icon, ⌘Tab, standard menu bar.
         NSApp.setActivationPolicy(.regular)
@@ -77,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Show the main window on launch.
-        mainWindow.show()
+        mainWindow.show(select: .devices)
     }
 
     // Reopen (Dock click / `open` again) refocuses the main window.
@@ -118,10 +119,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         winMenu.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         NSApp.windowsMenu = winMenu
 
+        let viewItem = NSMenuItem()
+        mainMenu.addItem(viewItem)
+        let viewMenu = NSMenu(title: "显示")
+        viewItem.submenu = viewMenu
+        let devices = NSMenuItem(title: "设备", action: #selector(showDevicesPage), keyEquivalent: "1")
+        devices.target = self
+        viewMenu.addItem(devices)
+        let settings = NSMenuItem(title: "设置", action: #selector(showSettingsPage), keyEquivalent: "2")
+        settings.target = self
+        viewMenu.addItem(settings)
+
         NSApp.mainMenu = mainMenu
     }
 
     @objc private func showMainWindow() { mainWindow.show() }
+    @objc private func showDevicesPage() { mainWindow.show(select: .devices) }
+    @objc private func showSettingsPage() { mainWindow.show(select: .settings) }
 
     private func updateStatusIcon() {
         statusItem.button?.image = statusBarImage(dominant: client.dominant, dim: client.blinkDim)

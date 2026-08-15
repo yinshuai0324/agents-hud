@@ -62,12 +62,17 @@ final class ServerController: ObservableObject {
             await engine.start()
             do {
                 try await server.start()
-                self.bonjour.start(
-                    port: cfg.port,
-                    hostName: Pairing.hostName(),
-                    version: Self.appVersion
-                )
+                // The HTTP/WS listener is the service readiness boundary.
+                // Bonjour is an auxiliary discovery advertisement and may
+                // wait on the system mDNS daemon; it must not leave the UI
+                // stuck in `.starting` after the server is already healthy.
                 self.status = .running(port: cfg.port)
+                // NetService.publish() can block the main thread indefinitely
+                // when the local mDNS daemon is unavailable. ServerController
+                // is @MainActor, so that freezes every SwiftUI click and even
+                // prevents the `.running` state from painting. Keep the core
+                // service responsive; Bonjour discovery will be restored with
+                // a dedicated run-loop worker rather than running inline here.
             } catch {
                 engine.stop()
                 self.engine = nil

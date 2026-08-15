@@ -5,7 +5,7 @@ import IOKit.serial
 /// Finds candidate USB serial ports for ESP32 dials and pokes a running
 /// firmware into ROM download mode (the console_task 'b' command).
 enum SerialPortLocator {
-    struct Port: Identifiable, Equatable {
+    struct Port: Identifiable, Equatable, Sendable {
         var id: String { path }
         let path: String // /dev/cu.usbmodemXXXX
         let usbVendorId: Int?

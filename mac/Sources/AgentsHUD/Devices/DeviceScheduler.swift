@@ -45,7 +45,9 @@ struct ScheduledTask: Codable, Identifiable, Equatable {
 }
 
 /// Owns the schedule list and fires due tasks against the device gateway.
-/// Checks every 20s; a task fires at most once per minute-of-day (daily repeat).
+/// Checks every 20s and accepts a short grace window so a busy run loop or a
+/// brief system sleep cannot silently skip a task. Each task still fires only
+/// once per local calendar day.
 @MainActor
 final class DeviceScheduler: ObservableObject {
     static let shared = DeviceScheduler()
@@ -55,6 +57,7 @@ final class DeviceScheduler: ObservableObject {
     @Published private(set) var lastResult: [UUID: String] = [:]
 
     private static let defaultsKey = "scheduledTasks"
+    private static let fireGrace: TimeInterval = 5 * 60
     private var timer: Timer?
     /// Minute keys ("yyyyMMdd HH:mm" + task id) already fired, so the 20s tick
     /// doesn't re-fire within the same minute.
@@ -105,21 +108,30 @@ final class DeviceScheduler: ObservableObject {
     private func tick() {
         let now = Date()
         let cal = Calendar.current
-        let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: now)
-        guard let hour = comps.hour, let minute = comps.minute else { return }
-        let dayKey = "\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0) \(hour):\(minute)"
+        let day = cal.dateComponents([.year, .month, .day], from: now)
+        guard let startOfDay = cal.date(from: day) else { return }
+        let dayKey = Self.dayKey(from: day)
 
-        for task in tasks where task.enabled && task.hour == hour && task.minute == minute {
+        for task in tasks where task.enabled {
+            guard let due = cal.date(
+                bySettingHour: min(max(task.hour, 0), 23),
+                minute: min(max(task.minute, 0), 59),
+                second: 0,
+                of: startOfDay
+            ) else { continue }
+            let lateness = now.timeIntervalSince(due)
+            guard lateness >= 0, lateness < Self.fireGrace else { continue }
             let key = "\(dayKey)#\(task.id.uuidString)"
             guard !fired.contains(key) else { continue }
             fired.insert(key)
             perform(task)
         }
-        // Keep the fired set from growing forever: entries older than the
-        // current minute can never match again.
-        if fired.count > 512 {
-            fired = fired.filter { $0.hasPrefix(dayKey) }
-        }
+        // Yesterday's entries can never match today's deduplication key.
+        fired = fired.filter { $0.hasPrefix(dayKey) }
+    }
+
+    private static func dayKey(from comps: DateComponents) -> String {
+        String(format: "%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
     }
 
     private func perform(_ task: ScheduledTask) {

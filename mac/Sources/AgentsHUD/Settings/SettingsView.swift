@@ -44,6 +44,9 @@ struct SettingsView: View {
     }
 
     private var serverStatusText: String {
+        if case .connected = client.connection {
+            return "运行中 :\(server.config.port)"
+        }
         switch server.status {
         case .running(let p): return "运行中 :\(p)"
         case .starting: return "启动中…"

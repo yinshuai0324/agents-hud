@@ -143,7 +143,19 @@ public final class HUDServer: @unchecked Sendable {
             do { try await server.run() } catch { /* stopped or failed to bind */ }
         }
         runTask = task
-        try await server.waitUntilListening(timeout: 10)
+        // FlyingFox 0.20's continuation-based waitUntilListening can miss the
+        // actor state transition on some macOS/Swift runtime combinations: the
+        // socket accepts traffic, yet the waiter never resumes. Poll the
+        // actor's authoritative state instead so app readiness matches reality.
+        for _ in 0..<200 {
+            if await server.isListening { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        throw NSError(
+            domain: "AgentsHUD.HUDServer",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "server did not start listening within 10 seconds"]
+        )
     }
 
     public func stop() async {

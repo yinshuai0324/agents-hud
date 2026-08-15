@@ -11,7 +11,7 @@ struct DevicesView: View {
     @ObservedObject var updater: FirmwareUpdater
 
     @State private var selectedDevice: BLEProvisioner.Discovered?
-    @State private var ssid: String = DevicesView.currentSSID() ?? ""
+    @State private var ssid: String = ""
     @State private var password: String = ""
     @State private var serialPorts: [SerialPortLocator.Port] = []
     @State private var selectedPort: String = ""
@@ -33,7 +33,10 @@ struct DevicesView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(CC.bgBottom)
-        .onAppear { refreshPorts() }
+        .onAppear {
+            refreshPortsInBackground()
+            loadCurrentSSID()
+        }
     }
 
     // MARK: - Connected over WiFi + control
@@ -271,7 +274,7 @@ struct DevicesView: View {
             HStack {
                 Text("固件更新（USB）").font(.headline)
                 Spacer()
-                Button("刷新串口") { refreshPorts() }
+                Button("刷新串口") { refreshPortsInBackground() }
             }
 
             if serialPorts.isEmpty {
@@ -343,16 +346,33 @@ struct DevicesView: View {
         }
     }
 
-    private func refreshPorts() {
-        serialPorts = SerialPortLocator.ports()
+    private func refreshPortsInBackground() {
+        Task.detached(priority: .utility) {
+            let ports = SerialPortLocator.ports()
+            await MainActor.run { applyPorts(ports) }
+        }
+    }
+
+    private func applyPorts(_ ports: [SerialPortLocator.Port]) {
+        serialPorts = ports
         if selectedPort.isEmpty || !serialPorts.contains(where: { $0.path == selectedPort }) {
             selectedPort = serialPorts.first?.path ?? ""
         }
     }
 
+    private func loadCurrentSSID() {
+        guard ssid.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            let detected = DevicesView.currentSSID()
+            await MainActor.run {
+                if ssid.isEmpty { ssid = detected ?? "" }
+            }
+        }
+    }
+
     /// Current WiFi SSID as a convenient default (needs Location permission on
     /// newer macOS; empty when unavailable).
-    static func currentSSID() -> String? {
+    nonisolated static func currentSSID() -> String? {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
         task.arguments = ["-getairportnetwork", "en0"]
