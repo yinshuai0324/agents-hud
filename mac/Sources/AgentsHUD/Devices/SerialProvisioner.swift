@@ -1,8 +1,8 @@
 import Foundation
 import AgentsHUDCore
 
-/// Provisions a dial over USB serial — the path for boards without Bluetooth
-/// (ESP8266). Line-based JSON at 115200 baud (docs/PROTOCOL.md §4b):
+/// Provisions a supported board over USB serial. Line-based JSON at 115200
+/// baud (docs/PROTOCOL.md §4b):
 ///   → {"t":"info?"}                      ← {"t":"info","board":..,"fw":..,"id":..}
 ///   → {"t":"prov","v":1,"ssid":..,...}   ← {"t":"st","st":"connecting|got_ip|ws_ok|...","ip":..}
 @MainActor
@@ -120,8 +120,8 @@ final class SerialProvisioner: ObservableObject {
         guard let port = SerialLine(path: portPath) else { return nil }
         defer { port.close() }
 
-        // Opening a NodeMCU-style USB serial port resets it. Wait for the app
-        // firmware to boot before sending the identity request.
+        // Some USB bridges reset the board when opened. Native ESP32 USB does
+        // not normally reset, but the shared delay keeps both paths reliable.
         try? await Task.sleep(nanoseconds: 1_800_000_000)
         guard !Task.isCancelled else { return nil }
 
@@ -158,8 +158,8 @@ final class SerialProvisioner: ObservableObject {
         }
         defer { port.close() }
 
-        // Opening the port auto-resets a NodeMCU-style board; give it time to
-        // boot before talking.
+        // Some USB bridges reset the board when opened; allow either board
+        // family enough time to boot before talking.
         try? await Task.sleep(nanoseconds: 1_800_000_000)
 
         // Probe: ask for device info (also confirms the firmware speaks our
@@ -187,8 +187,8 @@ final class SerialProvisioner: ObservableObject {
         await setPhase(.sending)
         port.writeLine(provJson)
 
-        // Follow status lines until ws_ok / a terminal failure (90s budget:
-        // WiFi join + WS connect can be slow on 8266).
+        // Follow status lines until ws_ok / a terminal failure. WiFi join and
+        // the first WebSocket connection can be slow, so allow 90 seconds.
         var lastIp = ""
         let deadline = Date().addingTimeInterval(90)
         while Date() < deadline, !Task.isCancelled {
@@ -206,10 +206,13 @@ final class SerialProvisioner: ObservableObject {
                 await setPhase(.failed("WiFi 密码错误"))
                 return
             case "ap_not_found":
-                await setPhase(.failed("找不到该 WiFi（8266 只支持 2.4GHz）"))
+                await setPhase(.failed("找不到该 WiFi（设备只支持 2.4GHz）"))
                 return
             case "server_fail":
                 await setPhase(.failed("设备连上 WiFi（\(lastIp)）但连不上本机服务，请检查防火墙/局域网权限"))
+                return
+            case "bad_request":
+                await setPhase(.failed("配网参数无效，请检查 WiFi 名称后重试"))
                 return
             default:
                 await setPhase(.deviceStatus(st, ip: ip))

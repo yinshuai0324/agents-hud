@@ -87,7 +87,7 @@ server（默认 `0.0.0.0:4317`）。本文件是 wire 契约的基准 —— 改
  "pl":"Max (5x)","pr":"claude","h":"MacBook-Pro"}
 ```
 
-紧凑字段与旧 BLE daemon 完全一致：`p5/r5` 5h 用量%/重置分钟，`p7/r7` 7 天（可缺省），
+紧凑字段与旧 BLE daemon 保持兼容：`p5/r5` 5h 用量%/重置分钟（无有效数据时可缺省），`p7/r7` 7 天（可缺省），
 `tt` 今日 token，`bu` 每分钟 token，`lv` 是否官方实时数据，`w/n/wa/e/q/to` 各状态会话数，
 `d` 主导状态，`m` 模型（≤24 字符），`pl` 套餐（≤24 字符），`pr` 当前来源
 （`claude|codex|gemini`，固件据此显示平台图标），`h` 主机名。
@@ -140,8 +140,9 @@ WiFi 和 WebSocket，因而能立即接收亮屏命令。Mac 会合并“定时�
 {"t":"reset"}                                                   // 清配网并重启
 
 // 设备 → Mac
-{"t":"info","board":"sdd154","fw":"0.2.0","id":"315D"}
-{"t":"st","st":"connecting|got_ip|ws_ok|bad_pass|ap_not_found|server_fail","ip":"192.168.1.42"}
+{"t":"info","board":"ws175","fw":"0.2.0","id":"F232"}   // ESP32-S3
+{"t":"info","board":"sdd154","fw":"0.2.0","id":"315D"}  // ESP8266
+{"t":"st","st":"idle|connecting|got_ip|ws_ok|bad_pass|ap_not_found|server_fail|bad_request","ip":"192.168.1.42"}
 ```
 
 另保留单字符控制台命令：`r` 重启、`p` 清配网重启（ESP32 板还有 `b` 进下载模式；

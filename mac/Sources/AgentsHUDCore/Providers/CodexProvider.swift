@@ -36,7 +36,8 @@ public final class CodexProvider: Provider, @unchecked Sendable {
         var sessions: [SessionData] = []
         var usageEvents: [UsageEvent] = []
         var today = TodayUsage.zero
-        var newestWindows: (ts: Double, windows: [ProviderUsageWindow], plan: String)?
+        var generalLimits: RateLimitObservation?
+        var scopedLimits: RateLimitObservation?
 
         for case let url as URL in enumerator {
             guard url.pathExtension == "jsonl" else { continue }
@@ -57,18 +58,28 @@ public final class CodexProvider: Provider, @unchecked Sendable {
             usageEvents.append(contentsOf: parsed.usageEvents)
             today.tokens += parsed.today.tokens
             today.cacheWriteTokens += parsed.today.cacheWriteTokens
-            if let candidate = parsed.rateLimits,
-               newestWindows == nil || candidate.ts > newestWindows!.ts {
-                newestWindows = candidate
+            if let candidate = parsed.generalLimits {
+                generalLimits = Self.merging(generalLimits, with: candidate)
+            }
+            if let candidate = parsed.scopedLimits {
+                scopedLimits = Self.merging(scopedLimits, with: candidate)
             }
         }
+
+        // Codex can interleave the account-wide quota (limit_id "codex") with
+        // model-specific buckets such as "codex_bengalfox" in different
+        // rollout files. A model bucket often reports 0/0 and must not replace
+        // the account-wide weekly quota merely because it was written a moment
+        // later. Prefer the general quota; only use a scoped bucket on older
+        // transcripts that contain no general record at all.
+        let limits = generalLimits ?? scopedLimits
 
         return ProviderSnapshot(
             provider: name,
             sessions: sessions,
             usageEvents: usageEvents,
-            usageWindows: newestWindows?.windows ?? [],
-            plan: newestWindows?.plan ?? "",
+            usageWindows: limits?.windows ?? [],
+            plan: limits?.plan ?? "",
             today: today
         )
     }
@@ -77,7 +88,14 @@ public final class CodexProvider: Provider, @unchecked Sendable {
         var session: SessionData?
         var usageEvents: [UsageEvent]
         var today: TodayUsage
-        var rateLimits: (ts: Double, windows: [ProviderUsageWindow], plan: String)?
+        var generalLimits: RateLimitObservation?
+        var scopedLimits: RateLimitObservation?
+    }
+
+    private struct RateLimitObservation {
+        var ts: Double
+        var windows: [ProviderUsageWindow]
+        var plan: String
     }
 
     private func parseFile(
@@ -95,7 +113,8 @@ public final class CodexProvider: Provider, @unchecked Sendable {
         var previousCumulative: CodexTokenCounts?
         var usageEvents: [UsageEvent] = []
         var today = TodayUsage.zero
-        var latestLimits: (ts: Double, windows: [ProviderUsageWindow], plan: String)?
+        var generalLimits: RateLimitObservation?
+        var scopedLimits: RateLimitObservation?
 
         let opened = JSONLReader.forEachObject(atPath: filePath) { object in
             let ts = (object["timestamp"] as? String).flatMap(TimestampParser.epochMs)
@@ -151,11 +170,17 @@ public final class CodexProvider: Provider, @unchecked Sendable {
                 if let rawLimits = payload["rate_limits"] as? [String: Any] {
                     let windows = Self.parseWindows(rawLimits, observedAt: timestamp)
                     if !windows.isEmpty {
-                        latestLimits = (
-                            timestamp,
-                            windows,
-                            Self.prettyPlan(stringField(rawLimits["plan_type"]))
+                        let observation = RateLimitObservation(
+                            ts: timestamp,
+                            windows: windows,
+                            plan: Self.prettyPlan(stringField(rawLimits["plan_type"]))
                         )
+                        let limitID = stringField(rawLimits["limit_id"]).lowercased()
+                        if limitID.isEmpty || limitID == "codex" {
+                            generalLimits = Self.merging(generalLimits, with: observation)
+                        } else {
+                            scopedLimits = Self.merging(scopedLimits, with: observation)
+                        }
                     }
                 }
 
@@ -165,7 +190,13 @@ public final class CodexProvider: Provider, @unchecked Sendable {
         }
 
         guard opened else {
-            return ParsedFile(session: nil, usageEvents: [], today: .zero, rateLimits: nil)
+            return ParsedFile(
+                session: nil,
+                usageEvents: [],
+                today: .zero,
+                generalLimits: nil,
+                scopedLimits: nil
+            )
         }
         let session: SessionData?
         if includeSession, last > 0 {
@@ -183,7 +214,39 @@ public final class CodexProvider: Provider, @unchecked Sendable {
         } else {
             session = nil
         }
-        return ParsedFile(session: session, usageEvents: usageEvents, today: today, rateLimits: latestLimits)
+        return ParsedFile(
+            session: session,
+            usageEvents: usageEvents,
+            today: today,
+            generalLimits: generalLimits,
+            scopedLimits: scopedLimits
+        )
+    }
+
+    /// Merge independently by window duration. Some newer Codex events carry
+    /// only one window, so replacing the whole observation would erase the
+    /// other still-valid window.
+    private static func merging(
+        _ current: RateLimitObservation?,
+        with candidate: RateLimitObservation
+    ) -> RateLimitObservation {
+        guard var merged = current else { return candidate }
+        for window in candidate.windows {
+            if let index = merged.windows.firstIndex(where: {
+                $0.windowMinutes == window.windowMinutes
+            }) {
+                if window.observedAt >= merged.windows[index].observedAt {
+                    merged.windows[index] = window
+                }
+            } else {
+                merged.windows.append(window)
+            }
+        }
+        if candidate.ts >= merged.ts {
+            merged.ts = candidate.ts
+            if !candidate.plan.isEmpty { merged.plan = candidate.plan }
+        }
+        return merged
     }
 
     private static func parseWindows(

@@ -1,8 +1,8 @@
 # AgentsHUD ESP32 圆屏固件
 
 跑在 Waveshare **ESP32-S3-Touch-AMOLED-1.75**（466×466 圆形 AMOLED，CO5300 QSPI +
-CST9217 触摸）上的用量表盘。**WiFi 与 Mac 通讯**：首次用 BLE 从 Mac App 接收 WiFi
-配置（「设备…」窗口扫描下发），之后固件作为 WebSocket client 直连 Mac App 内置
+CST9217 触摸）上的用量表盘。**WiFi 与 Mac 通讯**：首次可用 BLE 或 USB 串口从 Mac App
+接收 WiFi 配置（「设备…」窗口扫描下发），之后固件作为 WebSocket client 直连 Mac App 内置
 server 的 `/device` 端点，每 3 秒收到一条紧凑 JSON。Mac 换 IP 时通过 mDNS
 （`_agentshud._tcp`）自动找回服务。协议详见 [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md)。
 
@@ -14,8 +14,8 @@ server 的 `/device` 端点，每 3 秒收到一条紧凑 JSON。Mac 换 IP 时�
 - **编号**即设备身份（如 `F232`，WiFi MAC 后两字节），等待配对时状态栏也会显示
 - 侧面 **BOOT 键短按**：屏幕旋转 90°（存 NVS，断电记忆）；**长按 ≥3 秒**：清除配网
   信息并重启进配对模式
-- 串口调试命令：`b` 重启进下载模式（免按键烧录）、`r` 普通重启、`p` 清除配网重启、
-  `z` 强制息屏
+- USB 串口支持设备探测和 WiFi 配网；同时保留调试命令：`b` 重启进下载模式（免按键烧录）、
+  `r` 普通重启、`p` 清除配网重启、`z` 强制息屏
 
 ## 多板型
 
@@ -51,7 +51,7 @@ Mac App「设备」窗口用内置 esptool 一键 USB 烧录（自动分块 + �
   九成是这个：先用 `esptool --before no_reset flash_id` 探测，能连上说明它在下载
   模式里等着。可靠的退出方式是在同一个串口会话里脉冲 RTS。
 - **黑白条纹**：LVGL 绘制缓冲不能放 PSRAM（无线电收发会抢总线导致 QSPI 刷屏丢带），
-  必须放内部 DMA RAM，见 `boards/ws175/board/board.c`（30 行条带 ×2，因 sw_rotate 需双缓冲）。
+  必须放内部 DMA RAM，见 `boards/ws175/board/board.c`（20 行条带 ×2，因 sw_rotate 需双缓冲）。
   WiFi 常开后此约束更关键，升级固件后请盯一眼满载时是否有条纹。
 - **触摸驱动**：官方 CST9217 驱动在无触摸时返回错误会被 esp_lvgl_port abort，
   `components/esp_lcd_touch_cst9217/` 是打过补丁的本地版。

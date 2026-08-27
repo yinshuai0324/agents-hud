@@ -60,8 +60,6 @@ public final class StateEngine: @unchecked Sendable {
     private static let speedMinDeltaMs: Double = 500
     /// Real statusLine usage is trusted for this long before falling back to estimate.
     private static let liveTTLMs: Double = 20 * 60_000
-    private static let fiveHourMs: Double = 5 * 60 * 60_000
-    private static let sevenDayMs: Double = 7 * 24 * 60 * 60_000
 
     private let lock = NSRecursiveLock()
     private var runtimes: [String: Runtime] = [:]
@@ -228,17 +226,45 @@ public final class StateEngine: @unchecked Sendable {
         let now = nowMs()
         lock.lock()
         var seen = Set<String>()
-        for snap in collected {
+        for incoming in collected {
+            var snap = incoming
             let provider = snap.provider.isEmpty
                 ? (snap.sessions.first?.provider ?? "unknown")
                 : snap.provider
+            // A refresh can briefly observe a partially-written transcript.
+            // Keep each still-valid quota window independently instead of
+            // replacing the previous complete set with an empty/partial set.
+            if let previous = providerSnapshots[provider] {
+                for window in previous.usageWindows where
+                    !snap.usageWindows.contains(where: {
+                        $0.windowMinutes == window.windowMinutes
+                    }) && (window.resetsAt == nil || window.resetsAt! > now) {
+                    snap.usageWindows.append(window)
+                }
+                if snap.plan.isEmpty { snap.plan = previous.plan }
+            }
             providerSnapshots[provider] = snap
             usageEventsByProvider[provider] = snap.usageEvents
             if let today = snap.today { todayUsageByProvider[provider] = today }
             for s in snap.sessions {
                 seen.insert(s.id)
+                let previousActivity = sessions[s.id]?.lastActivity
                 sessions[s.id] = s
-                if runtimes[s.id] == nil {
+                if var runtime = runtimes[s.id] {
+                    // FSEvents can coalesce or omit individual JSONL writes.
+                    // The periodic disk scan is authoritative too: if a
+                    // non-hook session's transcript advanced after it had
+                    // become waiting/quiet, wake it back to working.
+                    if !runtime.hookMode,
+                       let previousActivity,
+                       s.lastActivity > previousActivity {
+                        runtime.state = .working
+                        runtime.lastSignalAt = max(runtime.lastSignalAt, s.lastActivity)
+                        runtime.waitingSince = 0
+                        runtime.currentTool = ""
+                        runtimes[s.id] = runtime
+                    }
+                } else {
                     runtimes[s.id] = initialRuntime(s, now: now)
                 }
             }
@@ -626,12 +652,12 @@ public final class StateEngine: @unchecked Sendable {
         var usage7d: UsageWindow?
         let plan: String
         if provider == "claude" {
-            if let liveFive = effectiveLiveWindow(liveFiveHour, windowMs: Self.fiveHourMs, now: now) {
+            if let liveFive = effectiveLiveWindow(liveFiveHour, now: now) {
                 usage5h.percent = liveFive.percent
                 usage5h.resetInMinutes = minutesUntil(liveFive.resetsAt, now: now) ?? usage5h.resetInMinutes
                 usage5h.source = "live"
             }
-            if let liveSeven = effectiveLiveWindow(liveSevenDay, windowMs: Self.sevenDayMs, now: now) {
+            if let liveSeven = effectiveLiveWindow(liveSevenDay, now: now) {
                 usage7d = UsageWindow(
                     percent: liveSeven.percent,
                     resetInMinutes: minutesUntil(liveSeven.resetsAt, now: now) ?? 0
@@ -663,21 +689,19 @@ public final class StateEngine: @unchecked Sendable {
         )
     }
 
-    /// Resolve a live rate-limit window to what should be shown *right now*,
-    /// rolling it forward across any reset boundaries that have already elapsed
-    /// (see effectiveLiveWindow in state.ts for the full rationale).
+    /// Resolve a live rate-limit window to what should be shown *right now*.
+    /// An expired cached window is unknown until the provider reports again.
     private func effectiveLiveWindow(
-        _ w: LiveWindow?, windowMs: Double, now: Double
+        _ w: LiveWindow?, now: Double
     ) -> (percent: Int, resetsAt: Double?)? {
         guard let w else { return nil }
         guard let resetsAt = w.resetsAt else {
             return now - w.ts < Self.liveTTLMs ? (w.percent, nil) : nil
         }
         if now < resetsAt { return (w.percent, resetsAt) }
-        // The window reset while no fresh statusLine arrived — roll forward to
-        // the current window and show it freshly empty until real numbers land.
-        let periods = ((now - resetsAt) / windowMs).rounded(.down) + 1
-        return (0, resetsAt + periods * windowMs)
+        // The reset happened without a fresh statusLine. Do not manufacture a
+        // 0% reading for a window we have never observed.
+        return nil
     }
 
     private func bestWindow(
@@ -700,11 +724,9 @@ public final class StateEngine: @unchecked Sendable {
         if now < reset {
             return (window.percent, minutesUntil(reset, now: now) ?? 0)
         }
-        let duration = Double(window.windowMinutes) * 60_000
-        guard duration > 0 else { return nil }
-        let periods = ((now - reset) / duration).rounded(.down) + 1
-        let nextReset = reset + periods * duration
-        return (0, minutesUntil(nextReset, now: now) ?? window.windowMinutes)
+        // After reset, the previous percentage says nothing about the new
+        // window. Wait for a fresh observation instead of inventing 0%.
+        return nil
     }
 }
 

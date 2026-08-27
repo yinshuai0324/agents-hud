@@ -223,12 +223,16 @@ static void host_task(void *param)
     nimble_port_freertos_deinit();
 }
 
-void provision_ble_start(provision_request_cb_t on_request)
+bool provision_ble_start(provision_request_cb_t on_request)
 {
-    if (s_running) return;
+    if (s_running) return true;
     s_on_request = on_request;
 
-    ESP_ERROR_CHECK(nimble_port_init());
+    esp_err_t err = nimble_port_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NimBLE init failed: %s", esp_err_to_name(err));
+        return false;
+    }
     ble_hs_cfg.sync_cb = on_sync;
     ble_hs_cfg.reset_cb = on_reset;
 
@@ -241,6 +245,7 @@ void provision_ble_start(provision_request_cb_t on_request)
     nimble_port_freertos_init(host_task);
     s_running = true;
     ESP_LOGI(TAG, "provisioning BLE started");
+    return true;
 }
 
 void provision_ble_stop(void)

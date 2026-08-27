@@ -26,6 +26,10 @@ public final class DeviceGateway: @unchecked Sendable {
     private var devices: [String: DeviceInfo] = [:]
     /// Live send channels, keyed by device id (set once hello/query id is known).
     private var senders: [String: @Sendable (String) -> Void] = [:]
+    /// Identity of the connection that owns each sender. A reconnect can finish
+    /// before the old WebSocket's termination callback runs; the old callback
+    /// must not detach the replacement connection.
+    private var connectionIDs: [String: UUID] = [:]
     /// Devices whose usage-snapshot push is turned off (default is on).
     private var usageOff: Set<String> = []
     private var changeListeners: [UUID: @Sendable ([DeviceInfo]) -> Void] = [:]
@@ -65,16 +69,28 @@ public final class DeviceGateway: @unchecked Sendable {
     // MARK: - Connection lifecycle (called from DeviceWSHandler)
 
     /// Register the send channel for a device connection.
-    func attach(id: String, sender: @escaping @Sendable (String) -> Void) {
-        guard !id.isEmpty else { return }
+    @discardableResult
+    func attach(
+        id: String,
+        connectionID: UUID = UUID(),
+        sender: @escaping @Sendable (String) -> Void
+    ) -> UUID {
+        guard !id.isEmpty else { return connectionID }
         lock.lock()
+        connectionIDs[id] = connectionID
         senders[id] = sender
         lock.unlock()
+        return connectionID
     }
 
-    func detach(id: String) {
+    func detach(id: String, connectionID: UUID) {
         guard !id.isEmpty else { return }
         lock.lock()
+        guard connectionIDs[id] == connectionID else {
+            lock.unlock()
+            return
+        }
+        connectionIDs[id] = nil
         senders[id] = nil
         if var d = devices[id] { d.online = false; devices[id] = d }
         notifyLocked()

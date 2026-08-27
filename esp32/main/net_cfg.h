@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /** Provisioned connection settings, stored in NVS namespace "ahud". */
 typedef struct {
@@ -19,6 +20,9 @@ bool net_cfg_save(const net_cfg_t *cfg);
 
 /** Update just the server URL (mDNS rediscovery found a moved server). */
 void net_cfg_save_url(const char *url);
+
+/** Persist display rotation in the shared settings namespace. */
+void net_cfg_save_rotation(uint8_t rotation);
 
 /** Erase all provisioning (long-press BOOT / serial 'p'), keeps rotation. */
 void net_cfg_erase(void);

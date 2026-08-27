@@ -75,6 +75,27 @@ final class DeviceGatewayTests: XCTestCase {
         XCTAssertEqual(gateway.connectedDevices.first?.usageEnabled, true)
     }
 
+    func testOldConnectionCannotMarkReplacementOffline() {
+        let gateway = DeviceGateway()
+        let oldFrame = FrameBox()
+        let newFrame = FrameBox()
+        gateway.upsert(id: "F232", board: "ws175", firmware: "0.2.0", address: "local")
+
+        let oldConnection = gateway.attach(id: "F232") { oldFrame.set($0) }
+        let newConnection = gateway.attach(id: "F232") { newFrame.set($0) }
+        gateway.upsert(id: "F232", board: "ws175", firmware: "0.2.0", address: "local")
+
+        gateway.detach(id: "F232", connectionID: oldConnection)
+        XCTAssertEqual(gateway.connectedDevices.first?.online, true)
+        XCTAssertTrue(gateway.send(to: "F232", "replacement"))
+        XCTAssertNil(oldFrame.get())
+        XCTAssertEqual(newFrame.get(), "replacement")
+
+        gateway.detach(id: "F232", connectionID: newConnection)
+        XCTAssertEqual(gateway.connectedDevices.first?.online, false)
+        XCTAssertFalse(gateway.send(to: "F232", "offline"))
+    }
+
     func testDisplayPowerCommandIsDirectedAndValidated() throws {
         let gateway = DeviceGateway()
         let frame = FrameBox()

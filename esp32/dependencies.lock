@@ -2,7 +2,7 @@ dependencies:
   esp_lcd_touch_cst9217:
     dependencies: []
     source:
-      path: /Users/yinshuai/developer/project/agents-status/esp32/components/esp_lcd_touch_cst9217
+      path: /Users/yinshuai/WorkSpace/AndroidStudioProjects/agents-hud/esp32/components/esp_lcd_touch_cst9217
       type: local
     version: 2.0.0
   espressif/cmake_utilities:
@@ -16,7 +16,7 @@ dependencies:
       type: service
     version: 0.5.3
   espressif/esp_codec_dev:
-    component_hash: df70f10af8d7b922add7b9d07372c9c97ab356e58d72b7a892050227c2d44348
+    component_hash: 4779f31a3ba3f9b38aee1afe6ccb9ba8f6108dc3a6e77d39d7d714e9a215371b
     dependencies:
     - name: idf
       require: private
@@ -24,7 +24,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.5.11
+    version: 1.6.2
   espressif/esp_io_expander:
     component_hash: 7b7f91270172e46ca4597e3874f48d8412e280e8c295559f5922ec38656e3e5f
     dependencies:
@@ -78,7 +78,7 @@ dependencies:
       type: service
     version: 1.2.1
   espressif/esp_lvgl_port:
-    component_hash: fb6c1fdfe70d4ca39a035d63ca394a35f17ec84ce16ff98ecb13a54155d75da4
+    component_hash: d3c020b45c3dfc0d1706a83b63a1c34a6eb444a6e935f9afff79f92b7b94dcef
     dependencies:
     - name: idf
       require: private
@@ -90,7 +90,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 2.8.0~1
+    version: 2.9.0
   espressif/esp_websocket_client:
     component_hash: 3fb288702517ef4d75bf933a115f1056ee0c2540d964f9e1d856e0bb67e1dfeb
     dependencies:
@@ -114,7 +114,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.4.1
+    version: 5.5.4
   lvgl/lvgl:
     component_hash: 17e68bfd21f0edf4c3ee838e2273da840bf3930e5dbc3bfa6c1190c3aed41f9f
     dependencies: []

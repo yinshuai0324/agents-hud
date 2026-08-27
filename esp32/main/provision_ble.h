@@ -22,8 +22,9 @@
 /** Called (from the NimBLE task) when a valid provisioning request arrives. */
 typedef void (*provision_request_cb_t)(const net_cfg_t *cfg);
 
-/** Start advertising + GATT. Safe to call when already running. */
-void provision_ble_start(provision_request_cb_t on_request);
+/** Start advertising + GATT. Safe to call when already running. Returns false
+ * instead of aborting when memory is unavailable, so USB remains usable. */
+bool provision_ble_start(provision_request_cb_t on_request);
 
 /** Stop NimBLE entirely and free its memory (provisioning done). */
 void provision_ble_stop(void);

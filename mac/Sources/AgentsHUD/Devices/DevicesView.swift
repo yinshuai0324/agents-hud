@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreWLAN
 import AgentsHUDCore
 
 /// Device management window: provisions over BLE or USB, then communicates
@@ -96,7 +97,7 @@ struct DevicesView: View {
                 }
                 .keyboardShortcut("n", modifiers: [.command])
             }
-            Text("自动扫描附近的 ESP32，并识别通过 USB 连接的 ESP8266；配网完成后统一使用 WiFi 通信。")
+            Text("自动扫描附近的 ESP32，并识别通过 USB 连接的 ESP32 / ESP8266；配网完成后统一使用 WiFi 通信。")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
         }
@@ -190,7 +191,7 @@ struct DevicesView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("等待发现设备…")
                         .font(.system(size: 13, weight: .medium))
-                    Text("请让 ESP32 进入配网模式，或用数据线连接 ESP8266")
+                    Text("请让 ESP32 进入配网模式，或用数据线连接 ESP32 / ESP8266")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -518,19 +519,11 @@ struct DevicesView: View {
         }
     }
 
-    /// Current WiFi SSID as a convenient default (needs Location permission on
-    /// newer macOS; empty when unavailable).
+    /// Current WiFi SSID as a convenient default. CoreWLAN selects the default
+    /// wireless interface and returns nil when the information is unavailable.
     nonisolated static func currentSSID() -> String? {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
-        task.arguments = ["-getairportnetwork", "en0"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        try? task.run()
-        task.waitUntilExit()
-        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard let range = out.range(of: ": ") else { return nil }
-        let ssid = out[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let rawSSID = CWWiFiClient.shared().interface()?.ssid() else { return nil }
+        let ssid = rawSSID.trimmingCharacters(in: .whitespacesAndNewlines)
         return ssid.isEmpty ? nil : ssid
     }
 }

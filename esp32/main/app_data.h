@@ -8,7 +8,7 @@ typedef struct {
     char provider[12];
     char plan[32];
     char model[40];
-    int u5h_percent;        // 0..100
+    int u5h_percent;        // 0..100, -1 when the server has no 5h data
     int u5h_reset_min;
     long long u5h_tokens_used;
     long long u5h_burn_per_min;

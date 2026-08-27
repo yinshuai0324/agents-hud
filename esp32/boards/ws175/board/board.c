@@ -1,5 +1,6 @@
 #include "board.h"
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lcd_touch.h"
 #include "esp_lvgl_port.h"
@@ -7,10 +8,10 @@
 
 static const char *TAG = "board_ws175";
 
-/* Strip height per flush: 30*466*2 ≈ 28KB. sw_rotate allocates a second
- * rotation buffer of the same size; 2×37KB (40 lines) starves the radio
- * stack's internal RAM, so stay at 30. */
-#define DRAW_BUF_LINES 30
+/* Strip height per flush: 20*466*2 ≈ 18KB. sw_rotate allocates a second
+ * buffer of the same size. Keeping both buffers internal prevents radio-time
+ * display corruption while leaving enough internal RAM for WiFi/WS tasks. */
+#define DRAW_BUF_LINES 20
 
 const char *board_id(void)
 {
@@ -30,6 +31,9 @@ static void rounder_event_cb(lv_event_t *e)
 esp_err_t board_init(void)
 {
     lvgl_port_cfg_t lp = ESP_LVGL_PORT_INIT_CONFIG();
+    /* LVGL never writes flash from its task. Its stack can therefore live in
+     * PSRAM; the latency-sensitive display/rotation buffers remain internal. */
+    lp.task_stack_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     if (lvgl_port_init(&lp) != ESP_OK) {
         ESP_LOGE(TAG, "lvgl_port_init failed");
         return ESP_FAIL;

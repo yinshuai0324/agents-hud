@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
 #include "esp_system.h"
@@ -43,6 +44,8 @@ static EventGroupHandle_t s_events;
 #define EV_GOT_IP        BIT0
 #define EV_WIFI_FAIL     BIT1
 #define EV_PROV_REQUEST  BIT2
+#define EV_RESET_REQUEST BIT3
+#define EV_ROTATION_SAVE BIT4
 
 static esp_websocket_client_handle_t s_ws;
 static volatile bool s_ws_connected;
@@ -53,7 +56,10 @@ static volatile int s_auth_fails;
 static volatile int s_last_disc_reason;
 static net_cfg_t s_pending_cfg;         /* written by BLE, consumed by net task */
 static volatile bool s_provisioning;    /* pairing mode active */
-static volatile uint32_t s_prov_ok_tick; /* when ws_ok was reported over BLE */
+static volatile bool s_serial_provisioning; /* mirror status to USB serial */
+static volatile uint32_t s_prov_ok_tick; /* when ws_ok was reported */
+static volatile uint8_t s_pending_rotation;
+static bool s_wifi_initialized;
 
 const char *net_device_id(void)
 {
@@ -66,6 +72,41 @@ void net_reset_provisioning(void)
     net_cfg_erase();
     vTaskDelay(pdMS_TO_TICKS(200));
     esp_restart();
+}
+
+bool net_request_reset_provisioning(void)
+{
+    if (!s_events) return false;
+    xEventGroupSetBits(s_events, EV_RESET_REQUEST);
+    return true;
+}
+
+bool net_save_rotation(uint8_t rotation)
+{
+    if (!s_events) return false;
+    s_pending_rotation = rotation % 4;
+    xEventGroupSetBits(s_events, EV_ROTATION_SAVE);
+    return true;
+}
+
+static void provision_set_status(const char *st, const char *ip)
+{
+    provision_ble_set_status(st, ip);
+    if (s_serial_provisioning) {
+        printf("{\"t\":\"st\",\"st\":\"%s\",\"ip\":\"%s\"}\n",
+               st, ip ? ip : "");
+        fflush(stdout);
+    }
+}
+
+bool net_provision_from_serial(const net_cfg_t *cfg)
+{
+    if (!cfg || !s_events) return false;
+    s_pending_cfg = *cfg;
+    s_serial_provisioning = true;
+    s_provisioning = true;
+    xEventGroupSetBits(s_events, EV_PROV_REQUEST);
+    return true;
 }
 
 static long long json_ll(const cJSON *o, const char *k)
@@ -81,7 +122,8 @@ static void json_str(const cJSON *o, const char *k, char *out, size_t cap)
     else out[0] = '\0';
 }
 
-/* Compact payload, identical to the legacy BLE format plus "t":"snap":
+/* Compact payload, compatible with the legacy BLE format plus "t":"snap".
+ * p5/r5 and p7/r7 are omitted when that quota window is unavailable:
  * {"t":"snap","p5":52,"r5":161,"p7":27,"r7":5231,"tt":163962,"bu":15163,
  *  "lv":1,"w":1,"n":2,"wa":0,"e":0,"q":0,"to":3,"m":"Fable 5","pl":"Max (5x)","pr":"claude"} */
 static bool parse_payload(const char *body, ahud_snapshot_t *out)
@@ -96,7 +138,8 @@ static bool parse_payload(const char *body, ahud_snapshot_t *out)
         return false;
     }
     memset(out, 0, sizeof(*out));
-    out->u5h_percent = (int)json_ll(root, "p5");
+    const cJSON *p5 = cJSON_GetObjectItemCaseSensitive(root, "p5");
+    out->u5h_percent = cJSON_IsNumber(p5) ? (int)p5->valuedouble : -1;
     out->u5h_reset_min = (int)json_ll(root, "r5");
     const cJSON *p7 = cJSON_GetObjectItemCaseSensitive(root, "p7");
     out->u7d_percent = cJSON_IsNumber(p7) ? (int)p7->valuedouble : -1;
@@ -139,7 +182,7 @@ static void ws_handle_text(const char *body)
         s_last_data_tick = xTaskGetTickCount();
         s_on_update(&snap, AHUD_NET_OK);
         if (s_provisioning && s_prov_ok_tick == 0) {
-            provision_ble_set_status("ws_ok", NULL);
+            provision_set_status("ws_ok", NULL);
             s_prov_ok_tick = xTaskGetTickCount();
         }
     }
@@ -310,7 +353,38 @@ static void wifi_connect_with_cfg(void)
     } else if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
         ESP_LOGW(TAG, "esp_wifi_start: %s", esp_err_to_name(err));
     }
+    if (err == ESP_OK || err == ESP_ERR_WIFI_CONN) {
+        esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
+        if (ps_err == ESP_OK) {
+            ESP_LOGI(TAG, "wifi power save disabled");
+        } else {
+            ESP_LOGW(TAG, "esp_wifi_set_ps: %s", esp_err_to_name(ps_err));
+        }
+    }
     esp_wifi_connect();
+}
+
+static void wifi_stack_init(void)
+{
+    if (s_wifi_initialized) return;
+
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
+    wifi_init_config_t wcfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&wcfg));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                               wifi_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                               wifi_event_handler, NULL));
+
+    /* mDNS responder+resolver: lets the dial find a moved server. */
+    if (mdns_init() == ESP_OK) {
+        char host[24];
+        snprintf(host, sizeof(host), "agentshud-%s", s_device_id);
+        mdns_hostname_set(host);
+    }
+    s_wifi_initialized = true;
 }
 
 /* ------------------------------------------------------------- provisioning */
@@ -319,6 +393,8 @@ static void wifi_connect_with_cfg(void)
 static void on_provision_request(const net_cfg_t *cfg)
 {
     s_pending_cfg = *cfg;
+    s_serial_provisioning = false;
+    s_provisioning = true;
     xEventGroupSetBits(s_events, EV_PROV_REQUEST);
 }
 
@@ -330,7 +406,12 @@ static void net_task(void *arg)
 
     if (!s_have_cfg) {
         s_provisioning = true;
-        provision_ble_start(on_provision_request);
+        ESP_LOGI(TAG, "starting provisioning (internal=%u largest=%u)",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+        if (!provision_ble_start(on_provision_request)) {
+            ESP_LOGW(TAG, "BLE unavailable; USB provisioning remains active");
+        }
         s_on_update(NULL, AHUD_NET_PROVISIONING);
     } else {
         s_on_update(NULL, AHUD_NET_WIFI_CONNECTING);
@@ -339,20 +420,35 @@ static void net_task(void *arg)
 
     while (true) {
         EventBits_t bits = xEventGroupWaitBits(
-            s_events, EV_GOT_IP | EV_WIFI_FAIL | EV_PROV_REQUEST,
+            s_events, EV_GOT_IP | EV_WIFI_FAIL | EV_PROV_REQUEST |
+                      EV_RESET_REQUEST | EV_ROTATION_SAVE,
             pdTRUE, pdFALSE, pdMS_TO_TICKS(1000));
 
         uint32_t now = xTaskGetTickCount();
 
+        if (bits & EV_RESET_REQUEST) {
+            net_reset_provisioning();
+        }
+
+        if (bits & EV_ROTATION_SAVE) {
+            net_cfg_save_rotation(s_pending_rotation);
+        }
+
         if (bits & EV_PROV_REQUEST) {
-            /* New credentials over BLE: persist, then (re)try WiFi live so the
-             * provisioner sees connecting/got_ip/ws_ok or a failure code. */
+            /* New credentials over BLE or USB: persist, then (re)try WiFi live
+             * so the provisioner sees connecting/got_ip/ws_ok or a failure. */
+            if (s_serial_provisioning) {
+                /* USB carries status from here on. Release the BLE host and
+                 * controller before WiFi/WS need their task stacks. */
+                provision_ble_stop();
+            }
             s_cfg = s_pending_cfg;
             s_have_cfg = true;
             net_cfg_save(&s_cfg);
+            wifi_stack_init();
             s_auth_fails = 0;
             s_prov_ok_tick = 0;
-            provision_ble_set_status("connecting", NULL);
+            provision_set_status("connecting", NULL);
             s_on_update(NULL, AHUD_NET_WIFI_CONNECTING);
             if (ws_started && s_ws) {
                 esp_websocket_client_stop(s_ws);
@@ -369,14 +465,14 @@ static void net_task(void *arg)
             if (sta && esp_netif_get_ip_info(sta, &ip_info) == ESP_OK) {
                 snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ip_info.ip));
             }
-            if (s_provisioning) provision_ble_set_status("got_ip", ip);
+            if (s_provisioning) provision_set_status("got_ip", ip);
             ws_start();
             ws_started = true;
         }
 
         if (bits & EV_WIFI_FAIL) {
             if (s_provisioning) {
-                provision_ble_set_status(
+                provision_set_status(
                     s_last_disc_reason == WIFI_REASON_NO_AP_FOUND ? "ap_not_found"
                     : is_auth_fail(s_last_disc_reason)            ? "bad_pass"
                                                                   : "connecting",
@@ -388,7 +484,9 @@ static void net_task(void *arg)
                 ESP_LOGW(TAG, "repeated auth failures -> pairing mode");
                 s_provisioning = true;
                 s_prov_ok_tick = 0;
-                provision_ble_start(on_provision_request);
+                if (!provision_ble_start(on_provision_request)) {
+                    ESP_LOGW(TAG, "could not reopen BLE pairing; USB remains available");
+                }
                 s_on_update(NULL, AHUD_NET_PROVISIONING);
             }
             if (s_have_cfg) {
@@ -398,10 +496,11 @@ static void net_task(void *arg)
         }
 
         /* Provisioning finished: give the Mac a moment to read ws_ok, then
-         * shut BLE down and release its RAM. */
+         * stop mirroring status and shut BLE down to release its RAM. */
         if (s_provisioning && s_prov_ok_tick != 0 &&
             (now - s_prov_ok_tick) * portTICK_PERIOD_MS > PROV_LINGER_MS) {
             s_provisioning = false;
+            s_serial_provisioning = false;
             provision_ble_stop();
         }
 
@@ -440,27 +539,17 @@ void net_start(ahud_update_cb_t on_update)
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(s_device_id, sizeof(s_device_id), "%02X%02X", mac[4], mac[5]);
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
-    wifi_init_config_t wcfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&wcfg));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-                                               wifi_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                               wifi_event_handler, NULL));
-
-    /* mDNS responder+resolver: lets the dial find a moved server. */
-    if (mdns_init() == ESP_OK) {
-        char host[24];
-        snprintf(host, sizeof(host), "agentshud-%s", s_device_id);
-        mdns_hostname_set(host);
-    }
-
     s_have_cfg = net_cfg_load(&s_cfg);
+    if (s_have_cfg) wifi_stack_init();
     ESP_LOGI(TAG, "net start: id=%s provisioned=%d fw=%s board=%s",
              s_device_id, (int)s_have_cfg,
              esp_app_get_description()->version, board_id());
 
-    xTaskCreate(net_task, "ahud_net", 6144, NULL, 4, NULL);
+    BaseType_t task_ok = xTaskCreate(net_task, "ahud_net", 6144, NULL, 4, NULL);
+    if (task_ok != pdPASS) {
+        ESP_LOGE(TAG, "network task create failed (internal=%u largest=%u)",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    }
 }

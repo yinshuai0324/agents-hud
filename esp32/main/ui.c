@@ -4,11 +4,9 @@
 #include <string.h>
 
 #include "lvgl.h"
-#include "esp_heap_caps.h"
-#include "logo.h"
+#include "provider_icons.h"
 #include "net.h"
 #include "idle.h"
-#include "splash_animations.h"
 
 LV_FONT_DECLARE(font_cn_20);
 
@@ -25,6 +23,11 @@ LV_FONT_DECLARE(font_cn_20);
 #define CARD_W 340
 #define CARD_H 116
 
+/* The AMOLED glass sits slightly clockwise in this unit's shell. Counter-
+ * rotate every content view by 5 degrees to compensate. LVGL uses 0.1-degree
+ * units and positive values rotate clockwise, so -50 means 5 degrees left. */
+#define PANEL_TILT_COMP_DECI_DEG (-50)
+
 /* 红绿灯 state colors — keep in sync with android CCColors. */
 #define COL_ST_ERROR   lv_color_hex(0xFF453A)
 #define COL_ST_NOTIFY  lv_color_hex(0xFF9F0A)
@@ -37,28 +40,24 @@ typedef struct {
     lv_obj_t *pct;
     lv_obj_t *bar;
     lv_obj_t *resets;
+    int last_pct;
+    int last_reset;
+    int8_t last_known;
 } usage_card_t;
 
 static lv_obj_t *s_view_usage;
 static lv_obj_t *s_state_ring;
-static lv_obj_t *s_view_clawd;
 static lv_obj_t *s_view_detail;
 
-/* Mini animated Clawd atop the usage view (80px, cell=4). */
-static lv_obj_t *s_mini_canvas;
-static uint16_t *s_mini_buf;
-static uint16_t s_mini_anim;
-static uint16_t s_mini_frame;
-static uint32_t s_mini_frame_ms;
-static uint32_t s_mini_pick_ms;
-static int s_mini_group = -1;
-static lv_image_dsc_t s_logo_dsc;
+static lv_image_dsc_t s_provider_icon_dsc[3];
 static usage_card_t s_card_5h;
 static usage_card_t s_card_7d;
 static lv_obj_t *s_status_row;
 static lv_obj_t *s_status_spinner;
 static lv_obj_t *s_status_lbl;
-static lv_obj_t *s_provider_badge;
+static lv_obj_t *s_provider_icon;
+static lv_obj_t *s_detail_provider_icon;
+static int8_t s_provider_icon_index = -2;
 
 /* Detail view */
 static lv_obj_t *s_det_sessions;
@@ -73,6 +72,12 @@ static bool s_have_data;
 static ahud_net_state_t s_net = AHUD_NET_WIFI_CONNECTING;
 static uint32_t s_word_ms;
 static int s_word_idx;
+
+enum {
+    PROVIDER_ICON_CODEX,
+    PROVIDER_ICON_CLAUDE,
+    PROVIDER_ICON_GEMINI,
+};
 
 /* Rotating gerunds shown while Claude is working (Clawdmeter tradition). */
 static const char *const WORK_WORDS[] = {
@@ -105,218 +110,56 @@ static void fmt_reset(int mins, char *out, size_t cap)
     else snprintf(out, cap, "%d天%d小时后重置", mins / 1440, (mins % 1440) / 60);
 }
 
-/* ================== Clawd pixel-pet animation (from Clawdmeter) ========== */
-
-#define CLAWD_GRID 20
-
-static lv_obj_t *s_clawd_canvas;
-static uint16_t *s_clawd_buf;
-static uint16_t *s_clawd_row;
-static int s_clawd_cell;
-static int s_clawd_w;
-static uint16_t s_anim_idx;
-static uint16_t s_frame_idx;
-static uint32_t s_frame_ms;
-static uint32_t s_pick_ms;
-
-/* Auto-rotate to the next animation of the active group every 20 s. */
-#define CLAWD_ROTATE_MS 20000
-
-/* Usage-rate groups: idle/sleepy, normal, active, heavy (dance party). */
-#define CLAWD_GROUPS 4
-#define CLAWD_GROUP_MAX 4
-static const char *const CLAWD_GROUP_NAMES[CLAWD_GROUPS][CLAWD_GROUP_MAX] = {
-    { "expression sleep", "idle breathe", "idle blink", "expression wink" },
-    { "idle look around", "work think", "work coding", NULL },
-    { "dance sway", "expression surprise", "dance bounce", NULL },
-    { "dance bounce dj", "dance sway dj", "dance djmix", NULL },
-};
-static int8_t s_group_lists[CLAWD_GROUPS][CLAWD_GROUP_MAX];
-static uint8_t s_group_size[CLAWD_GROUPS];
-static uint8_t s_group_rot[CLAWD_GROUPS];
-
-static void clawd_resolve_groups(void)
+static void init_rgb565a8_image(lv_image_dsc_t *dsc, int width, int height,
+                                const uint8_t *data)
 {
-    for (int g = 0; g < CLAWD_GROUPS; g++) {
-        s_group_size[g] = 0;
-        for (int s = 0; s < CLAWD_GROUP_MAX; s++) {
-            const char *want = CLAWD_GROUP_NAMES[g][s];
-            if (!want) continue;
-            for (int i = 0; i < SPLASH_ANIM_COUNT; i++) {
-                if (strcmp(splash_anims[i].name, want) == 0) {
-                    s_group_lists[g][s_group_size[g]++] = (int8_t)i;
-                    break;
-                }
-            }
-        }
-    }
+    dsc->header.w = width;
+    dsc->header.h = height;
+    dsc->header.cf = LV_COLOR_FORMAT_RGB565A8;
+    dsc->header.stride = width * 2;
+    dsc->data = data;
+    dsc->data_size = width * height * 3;
 }
 
-static int clawd_group(void)
+static bool set_label_text_if_changed(lv_obj_t *label, const char *text)
 {
-    if (!s_have_data || s_last.s_working == 0) return 0;
-    long long rate = s_last.u5h_burn_per_min;
-    if (rate < 5000) return 1;
-    if (rate < 20000) return 2;
-    return 3;
+    if (strcmp(lv_label_get_text(label), text) == 0) return false;
+    lv_label_set_text(label, text);
+    return true;
 }
 
-/*
- * Render one claudepix frame into a scaled canvas, redrawing and
- * invalidating only the cells that differ from `prev` (NULL = full redraw).
- * Cuts a blink from a 460x460 repaint down to a few cells.
- */
-static void render_cells_diff(uint16_t *buf, int cell, int w, lv_obj_t *canvas,
-                              const splash_anim_def_t *a, const uint8_t *cells,
-                              const uint8_t *prev)
+static int provider_icon_index(const char *provider)
 {
-    int x0 = 0, y0 = 0, x1 = CLAWD_GRID - 1, y1 = CLAWD_GRID - 1;
-    if (prev) {
-        x0 = y0 = CLAWD_GRID;
-        x1 = y1 = -1;
-        for (int i = 0; i < CLAWD_GRID * CLAWD_GRID; i++) {
-            if (cells[i] != prev[i]) {
-                int gx = i % CLAWD_GRID, gy = i / CLAWD_GRID;
-                if (gx < x0) x0 = gx;
-                if (gx > x1) x1 = gx;
-                if (gy < y0) y0 = gy;
-                if (gy > y1) y1 = gy;
-            }
-        }
-        if (x1 < 0) return; /* identical frame */
-    }
-
-    for (int gy = y0; gy <= y1; gy++) {
-        for (int gx = x0; gx <= x1; gx++) {
-            uint8_t code = cells[gy * CLAWD_GRID + gx];
-            uint16_t color = (code < SPLASH_PALETTE_SIZE) ? a->palette[code] : 0x0000;
-            for (int dy = 0; dy < cell; dy++) {
-                uint16_t *dst = &buf[(gy * cell + dy) * w + gx * cell];
-                for (int dx = 0; dx < cell; dx++) dst[dx] = color;
-            }
-        }
-    }
-
-    if (canvas) {
-        lv_area_t coords;
-        lv_obj_get_coords(canvas, &coords);
-        lv_area_t dirty = {
-            .x1 = coords.x1 + x0 * cell,
-            .y1 = coords.y1 + y0 * cell,
-            .x2 = coords.x1 + (x1 + 1) * cell - 1,
-            .y2 = coords.y1 + (y1 + 1) * cell - 1,
-        };
-        lv_obj_invalidate_area(canvas, &dirty);
-    }
+    if (strcmp(provider, "codex") == 0) return PROVIDER_ICON_CODEX;
+    if (strcmp(provider, "gemini") == 0) return PROVIDER_ICON_GEMINI;
+    if (provider[0]) return PROVIDER_ICON_CLAUDE;
+    return -1;
 }
 
-/* Previous frame cell pointers (NULL = force full redraw). */
-static const uint8_t *s_clawd_prev;
-static const uint8_t *s_mini_prev;
-
-static void clawd_render(void)
+static void update_provider_icons(const char *provider)
 {
-    if (!s_clawd_buf) return;
-    const splash_anim_def_t *a = &splash_anims[s_anim_idx];
-    render_cells_diff(s_clawd_buf, s_clawd_cell, s_clawd_w, s_clawd_canvas,
-                      a, a->frames[s_frame_idx], s_clawd_prev);
-    s_clawd_prev = a->frames[s_frame_idx];
-}
+    int index = provider_icon_index(provider);
+    if (index == s_provider_icon_index) return;
+    s_provider_icon_index = index;
 
-static void clawd_pick(void)
-{
-    int g = clawd_group();
-    if (s_group_size[g] == 0) return;
-    uint8_t slot = s_group_rot[g] % s_group_size[g];
-    s_group_rot[g]++;
-    s_anim_idx = (uint16_t)s_group_lists[g][slot];
-    s_frame_idx = 0;
-    s_frame_ms = lv_tick_get();
-    s_pick_ms = s_frame_ms;
-    s_clawd_prev = NULL; /* animation switch: full redraw */
-    clawd_render();
-}
-
-#define MINI_PX 80
-#define MINI_CELL (MINI_PX / CLAWD_GRID)
-
-static void mini_render(void)
-{
-    if (!s_mini_buf) return;
-    const splash_anim_def_t *a = &splash_anims[s_mini_anim];
-    render_cells_diff(s_mini_buf, MINI_CELL, MINI_PX, s_mini_canvas,
-                      a, a->frames[s_mini_frame], s_mini_prev);
-    s_mini_prev = a->frames[s_mini_frame];
-}
-
-static void mini_pick(int group)
-{
-    if (s_group_size[group] == 0) return;
-    uint8_t slot = s_group_rot[group] % s_group_size[group];
-    s_group_rot[group]++;
-    s_mini_group = group;
-    s_mini_anim = (uint16_t)s_group_lists[group][slot];
-    s_mini_frame = 0;
-    s_mini_frame_ms = lv_tick_get();
-    s_mini_pick_ms = s_mini_frame_ms;
-    s_mini_prev = NULL; /* animation switch: full redraw */
-    mini_render();
-}
-
-static void clawd_timer_cb(lv_timer_t *t)
-{
-    (void)t;
-    if (SPLASH_ANIM_COUNT == 0) return;
-    uint32_t now = lv_tick_get();
-
-    /* Mini Clawd on the usage view: follows the state group live. */
-    if (s_mini_buf && s_view_usage && !lv_obj_has_flag(s_view_usage, LV_OBJ_FLAG_HIDDEN)) {
-        int g = clawd_group();
-        if (g != s_mini_group || now - s_mini_pick_ms >= CLAWD_ROTATE_MS) {
-            mini_pick(g);
+    lv_obj_t *icons[] = { s_provider_icon, s_detail_provider_icon };
+    for (size_t i = 0; i < sizeof(icons) / sizeof(icons[0]); i++) {
+        if (index >= 0) {
+            lv_image_set_src(icons[i], &s_provider_icon_dsc[index]);
+            lv_obj_remove_flag(icons[i], LV_OBJ_FLAG_HIDDEN);
         } else {
-            const splash_anim_def_t *a = &splash_anims[s_mini_anim];
-            uint16_t hold = a->holds[s_mini_frame];
-            if (a->frame_count > 0 && now - s_mini_frame_ms >= hold) {
-                s_mini_frame = (s_mini_frame + 1) % a->frame_count;
-                s_mini_frame_ms += hold;
-                if (now - s_mini_frame_ms > hold) s_mini_frame_ms = now;
-                mini_render();
-            }
+            lv_obj_add_flag(icons[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
-
-    /* Full-screen Clawd view. */
-    if (!s_view_clawd || lv_obj_has_flag(s_view_clawd, LV_OBJ_FLAG_HIDDEN)) return;
-    if (!s_clawd_buf) return;
-    if (now - s_pick_ms >= CLAWD_ROTATE_MS) {
-        clawd_pick();
-        return;
-    }
-    const splash_anim_def_t *a = &splash_anims[s_anim_idx];
-    if (a->frame_count == 0) return;
-    uint16_t hold = a->holds[s_frame_idx];
-    if (now - s_frame_ms >= hold) {
-        s_frame_idx = (s_frame_idx + 1) % a->frame_count;
-        s_frame_ms += hold;
-        if (now - s_frame_ms > hold) s_frame_ms = now;
-        clawd_render();
-    }
 }
-
-/* ========================================================================== */
 
 static void view_toggle_cb(lv_event_t *e)
 {
     (void)e;
     if (idle_consume_wake()) return; /* this touch only wakes the panel */
-    /* Cycle: usage -> clawd -> detail -> usage */
+    /* The built-in pet page is gone; future visual pages arrive dynamically. */
     if (!lv_obj_has_flag(s_view_usage, LV_OBJ_FLAG_HIDDEN)) {
         lv_obj_add_flag(s_view_usage, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_view_clawd, LV_OBJ_FLAG_HIDDEN);
-        clawd_pick();
-    } else if (!lv_obj_has_flag(s_view_clawd, LV_OBJ_FLAG_HIDDEN)) {
-        lv_obj_add_flag(s_view_clawd, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_view_detail, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_view_detail, LV_OBJ_FLAG_HIDDEN);
@@ -332,6 +175,11 @@ static lv_obj_t *make_view(lv_obj_t *scr)
     lv_obj_add_flag(v, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_flag(v, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(v, LV_OBJ_FLAG_SCROLLABLE);
+#if PANEL_TILT_COMP_DECI_DEG != 0
+    lv_obj_set_style_transform_pivot_x(v, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(v, LV_PCT(50), 0);
+    lv_obj_set_style_transform_rotation(v, PANEL_TILT_COMP_DECI_DEG, 0);
+#endif
     return v;
 }
 
@@ -394,6 +242,7 @@ static void make_usage_card(lv_obj_t *parent, usage_card_t *c, const char *tag, 
     c->resets = make_label(c->card, &font_cn_20, COL_DIM);
     lv_obj_align(c->resets, LV_ALIGN_TOP_LEFT, 0, 70);
     lv_label_set_text(c->resets, "---");
+    c->last_known = -1;
 }
 
 static lv_obj_t *make_detail_row(lv_obj_t *parent, const char *name, int y)
@@ -418,10 +267,16 @@ static lv_color_t dominant_color(const char *state)
 
 static void refresh_ring(void)
 {
+    static lv_color_t last_color;
+    static bool color_valid;
     lv_color_t c = (s_net == AHUD_NET_OK && s_have_data)
         ? dominant_color(s_last.dominant)
         : COL_BAR_BG; /* offline/waiting: dim neutral ring */
-    lv_obj_set_style_border_color(s_state_ring, c, 0);
+    if (!color_valid || !lv_color_eq(last_color, c)) {
+        lv_obj_set_style_border_color(s_state_ring, c, 0);
+        last_color = c;
+        color_valid = true;
+    }
 }
 
 static void refresh_status(void)
@@ -431,7 +286,7 @@ static void refresh_status(void)
     lv_color_t color = COL_DIM;
 
     if (net_device_id()[0]) {
-        lv_label_set_text(s_det_id, net_device_id());
+        set_label_text_if_changed(s_det_id, net_device_id());
     }
 
     switch (s_net) {
@@ -472,15 +327,26 @@ static void refresh_status(void)
     }
 
     refresh_ring();
-    lv_label_set_text(s_status_lbl, buf);
-    lv_obj_set_style_text_color(s_status_lbl, color, 0);
-    if (spin) {
-        lv_obj_remove_flag(s_status_spinner, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_status_spinner, LV_OBJ_FLAG_HIDDEN);
+
+    static lv_color_t last_color;
+    static bool color_valid;
+    bool dirty = set_label_text_if_changed(s_status_lbl, buf);
+    if (!color_valid || !lv_color_eq(last_color, color)) {
+        lv_obj_set_style_text_color(s_status_lbl, color, 0);
+        last_color = color;
+        color_valid = true;
     }
-    /* Re-center the row contents. */
-    lv_obj_update_layout(s_status_row);
+    if (spin == lv_obj_has_flag(s_status_spinner, LV_OBJ_FLAG_HIDDEN)) {
+        if (spin) {
+            lv_obj_remove_flag(s_status_spinner, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_status_spinner, LV_OBJ_FLAG_HIDDEN);
+        }
+        dirty = true;
+    }
+    if (dirty) {
+        lv_obj_update_layout(s_status_row);
+    }
 }
 
 static void word_timer_cb(lv_timer_t *t)
@@ -517,30 +383,20 @@ void ui_init(void)
     lv_obj_set_style_border_opa(s_state_ring, LV_OPA_COVER, 0);
     lv_obj_add_flag(s_state_ring, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    s_logo_dsc.header.w = LOGO_WIDTH;
-    s_logo_dsc.header.h = LOGO_HEIGHT;
-    s_logo_dsc.header.cf = LV_COLOR_FORMAT_RGB565A8;
-    s_logo_dsc.header.stride = LOGO_WIDTH * 2;
-    s_logo_dsc.data = logo_data;
-    s_logo_dsc.data_size = LOGO_WIDTH * LOGO_HEIGHT * 3;
+    init_rgb565a8_image(&s_provider_icon_dsc[PROVIDER_ICON_CODEX],
+                        PROVIDER_ICON_WIDTH, PROVIDER_ICON_HEIGHT,
+                        provider_codex_data);
+    init_rgb565a8_image(&s_provider_icon_dsc[PROVIDER_ICON_CLAUDE],
+                        PROVIDER_ICON_WIDTH, PROVIDER_ICON_HEIGHT,
+                        provider_claude_data);
+    init_rgb565a8_image(&s_provider_icon_dsc[PROVIDER_ICON_GEMINI],
+                        PROVIDER_ICON_WIDTH, PROVIDER_ICON_HEIGHT,
+                        provider_gemini_data);
 
-    /* Animated mini Clawd (falls back to the static logo if alloc fails). */
-    s_mini_buf = heap_caps_malloc(MINI_PX * MINI_PX * 2, MALLOC_CAP_SPIRAM);
-    if (s_mini_buf) {
-        s_mini_canvas = lv_canvas_create(s_view_usage);
-        lv_canvas_set_buffer(s_mini_canvas, s_mini_buf, MINI_PX, MINI_PX, LV_COLOR_FORMAT_RGB565);
-        lv_obj_align(s_mini_canvas, LV_ALIGN_TOP_MID, 0, 26);
-        lv_obj_add_flag(s_mini_canvas, LV_OBJ_FLAG_EVENT_BUBBLE);
-    } else {
-        lv_obj_t *logo = lv_image_create(s_view_usage);
-        lv_image_set_src(logo, &s_logo_dsc);
-        lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 26);
-        lv_obj_add_flag(logo, LV_OBJ_FLAG_EVENT_BUBBLE);
-    }
-
-    /* Current provider mark: Claude = A, Codex = >_, Gemini = G. */
-    s_provider_badge = make_pill(s_view_usage, "?");
-    lv_obj_align(s_provider_badge, LV_ALIGN_TOP_RIGHT, -58, 42);
+    /* Current provider logo occupies the former animation area. */
+    s_provider_icon = lv_image_create(s_view_usage);
+    lv_obj_align(s_provider_icon, LV_ALIGN_TOP_MID, 0, 26);
+    lv_obj_add_flag(s_provider_icon, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_HIDDEN);
 
     make_usage_card(s_view_usage, &s_card_5h, "5小时", 124);
     make_usage_card(s_view_usage, &s_card_7d, "7天", 252);
@@ -566,34 +422,14 @@ void ui_init(void)
     s_status_lbl = make_label(s_status_row, &font_cn_20, COL_ACCENT);
     lv_label_set_text(s_status_lbl, "等待蓝牙连接…");
 
-    /* ---- Clawd pet view ---- */
-    s_view_clawd = make_view(scr);
-    lv_obj_add_flag(s_view_clawd, LV_OBJ_FLAG_HIDDEN);
-
-    clawd_resolve_groups();
-    mini_pick(0);
-    s_clawd_cell = 466 / CLAWD_GRID; /* 23 -> 460x460 canvas */
-    s_clawd_w = CLAWD_GRID * s_clawd_cell;
-    s_clawd_buf = heap_caps_malloc(s_clawd_w * s_clawd_w * 2, MALLOC_CAP_SPIRAM);
-    s_clawd_row = heap_caps_malloc(s_clawd_w * 2, MALLOC_CAP_SPIRAM);
-    if (s_clawd_buf && s_clawd_row) {
-        s_clawd_canvas = lv_canvas_create(s_view_clawd);
-        lv_canvas_set_buffer(s_clawd_canvas, s_clawd_buf, s_clawd_w, s_clawd_w, LV_COLOR_FORMAT_RGB565);
-        lv_obj_center(s_clawd_canvas);
-        lv_obj_add_flag(s_clawd_canvas, LV_OBJ_FLAG_EVENT_BUBBLE);
-        clawd_pick();
-        lv_timer_create(clawd_timer_cb, 20, NULL);
-    }
-
     /* ---- Detail view (tap to toggle) ---- */
     s_view_detail = make_view(scr);
     lv_obj_add_flag(s_view_detail, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *dlogo = lv_image_create(s_view_detail);
-    lv_image_set_src(dlogo, &s_logo_dsc);
-    lv_image_set_scale(dlogo, 160); /* 80px -> 50px */
-    lv_obj_align(dlogo, LV_ALIGN_TOP_MID, 0, 30);
-    lv_obj_add_flag(dlogo, LV_OBJ_FLAG_EVENT_BUBBLE);
+    s_detail_provider_icon = lv_image_create(s_view_detail);
+    lv_obj_align(s_detail_provider_icon, LV_ALIGN_TOP_MID, 0, 26);
+    lv_obj_add_flag(s_detail_provider_icon,
+                    LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_HIDDEN);
 
     s_det_sessions = make_label(s_view_detail, &font_cn_20, COL_TEXT);
     lv_obj_align(s_det_sessions, LV_ALIGN_TOP_MID, 0, 118);
@@ -618,6 +454,13 @@ void ui_init(void)
 static void update_card(usage_card_t *c, int percent, int reset_min, bool known)
 {
     char buf[32];
+    if (c->last_known == (int8_t)known &&
+        (!known || (c->last_pct == percent && c->last_reset == reset_min))) {
+        return;
+    }
+    c->last_known = (int8_t)known;
+    c->last_pct = percent;
+    c->last_reset = reset_min;
     if (!known) {
         lv_label_set_text(c->pct, "--");
         lv_bar_set_value(c->bar, 0, LV_ANIM_OFF);
@@ -644,27 +487,24 @@ void ui_update(const ahud_snapshot_t *snap, ahud_net_state_t net)
         }
         char tok[16], buf[64];
 
-        update_card(&s_card_5h, snap->u5h_percent, snap->u5h_reset_min, true);
+        update_card(&s_card_5h, snap->u5h_percent, snap->u5h_reset_min,
+                    snap->u5h_percent >= 0);
         update_card(&s_card_7d, snap->u7d_percent, snap->u7d_reset_min, snap->u7d_percent >= 0);
 
         snprintf(buf, sizeof(buf), "%d 个会话 · %d 个在忙", snap->s_total, snap->s_working);
-        lv_label_set_text(s_det_sessions, buf);
+        set_label_text_if_changed(s_det_sessions, buf);
 
         fmt_tokens(snap->today_tokens, tok, sizeof(tok));
         snprintf(buf, sizeof(buf), "%s tok", tok);
-        lv_label_set_text(s_det_today, buf);
+        set_label_text_if_changed(s_det_today, buf);
 
         fmt_tokens(snap->u5h_burn_per_min, tok, sizeof(tok));
         snprintf(buf, sizeof(buf), "%s/min", tok);
-        lv_label_set_text(s_det_burn, buf);
+        set_label_text_if_changed(s_det_burn, buf);
 
-        lv_label_set_text(s_det_model, snap->model[0] ? snap->model : "--");
-        lv_label_set_text(s_det_plan, snap->plan[0] ? snap->plan : "--");
-
-        bool codex = strcmp(snap->provider, "codex") == 0;
-        bool gemini = strcmp(snap->provider, "gemini") == 0;
-        lv_label_set_text(s_provider_badge, codex ? ">_" : (gemini ? "G" : (snap->provider[0] ? "A" : "?")));
-        lv_obj_set_style_text_color(s_provider_badge, codex ? COL_GREEN : (gemini ? COL_ST_WAITING : COL_ACCENT), 0);
+        set_label_text_if_changed(s_det_model, snap->model[0] ? snap->model : "--");
+        set_label_text_if_changed(s_det_plan, snap->plan[0] ? snap->plan : "--");
+        update_provider_icons(snap->provider);
     }
 
     refresh_status();

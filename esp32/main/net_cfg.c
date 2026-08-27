@@ -54,6 +54,14 @@ void net_cfg_save_url(const char *url)
     ESP_LOGI(TAG, "server url updated: %s", url);
 }
 
+void net_cfg_save_rotation(uint8_t rotation)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_set_u8(h, "rot", rotation % 4) == ESP_OK) nvs_commit(h);
+    nvs_close(h);
+}
+
 void net_cfg_erase(void)
 {
     nvs_handle_t h;

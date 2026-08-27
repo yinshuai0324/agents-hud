@@ -280,6 +280,7 @@ struct DeviceWSHandler: WSMessageHandler {
         let queryBoard = self.queryBoard
         let queryFw = self.queryFw
         let address = self.address
+        let connectionID = UUID()
 
         return AsyncStream { continuation in
             // Query params double as a hello so the device shows up even if
@@ -292,8 +293,8 @@ struct DeviceWSHandler: WSMessageHandler {
                 continuation.yield(.text(text))
             }
             if !queryId.isEmpty {
+                gateway.attach(id: queryId, connectionID: connectionID, sender: rawSend)
                 gateway.upsert(id: queryId, board: queryBoard, firmware: queryFw, address: address)
-                gateway.attach(id: queryId, sender: rawSend)
             }
 
             // Push a usage snapshot only while usage is enabled for this device.
@@ -321,9 +322,13 @@ struct DeviceWSHandler: WSMessageHandler {
                 for await message in client {
                     guard case let .text(text) = message else { continue }
                     if let hello = DeviceGateway.parseHello(text) {
+                        let previousID = idBox.value
+                        if !previousID.isEmpty, previousID != hello.id {
+                            gateway.detach(id: previousID, connectionID: connectionID)
+                        }
                         idBox.value = hello.id
+                        gateway.attach(id: hello.id, connectionID: connectionID, sender: rawSend)
                         gateway.upsert(id: hello.id, board: hello.board, firmware: hello.fw, address: address)
-                        gateway.attach(id: hello.id, sender: rawSend)
                         continuation.yield(.text(gateway.hiMessage(serverVersion: serverVersion)))
                     }
                 }
@@ -335,7 +340,7 @@ struct DeviceWSHandler: WSMessageHandler {
                 heartbeat.cancel()
                 reader.cancel()
                 let id = idBox.value
-                if !id.isEmpty { gateway.detach(id: id) }
+                if !id.isEmpty { gateway.detach(id: id, connectionID: connectionID) }
             }
         }
     }

@@ -8,8 +8,6 @@ public enum CompactSnapshot {
     public static func json(from snap: Snapshot, hostName: String) -> String {
         var obj: [(String, Any)] = [
             ("t", "snap"),
-            ("p5", snap.usage5h.percent),
-            ("r5", snap.usage5h.resetInMinutes),
             ("tt", snap.today.tokens),
             ("bu", snap.usage5h.burnRatePerMin),
             // Both Claude statusLine values (live) and Codex transcript values
@@ -27,6 +25,13 @@ public enum CompactSnapshot {
             ("pr", String(snap.provider.prefix(12))),
             ("h", String(hostName.prefix(23))),
         ]
+        // An estimated 0 with no observed tokens means "no data", not 0%
+        // quota usage. Omit it so the dial renders an explicit placeholder.
+        // Non-zero local estimates remain useful when no exact quota is stored.
+        if snap.usage5h.source != "estimate" || snap.usage5h.tokensUsed > 0 {
+            obj.append(("p5", snap.usage5h.percent))
+            obj.append(("r5", snap.usage5h.resetInMinutes))
+        }
         if let u7 = snap.usage7d {
             obj.append(("p7", u7.percent))
             obj.append(("r7", u7.resetInMinutes))
